@@ -347,20 +347,27 @@ if (!SEATS) {
   throw new Error(`council: unknown roster "${ROSTER}". Known rosters: ${Object.keys(ROSTERS).join(', ')}. Or pass an explicit seats array.`)
 }
 
+// NOTE ON SIZE. The filing is a FILING, not an essay. The seats told to be
+// exhaustive (champion, devil's-advocate) will otherwise write ~13KB of JSON,
+// blow the structured-output limit, get truncated mid-object, fail to parse, and
+// die — silently taking the two advocacy seats out of the council. Bound every
+// field. Depth belongs in the quality of the argument, not its length.
 const POSITION = {
   type: 'object',
   required: ['position', 'reasoning', 'evidence', 'risks', 'confidence'],
   properties: {
-    position: { type: 'string', description: 'This seat\'s answer to the question, stated in one or two sentences. Take a side.' },
-    reasoning: { type: 'string', description: 'Why, argued from this seat\'s lens.' },
+    position: { type: 'string', description: 'This seat\'s answer to the question, stated in one or two sentences. Take a side. HARD LIMIT: 60 words.' },
+    reasoning: { type: 'string', description: 'Why, argued from this seat\'s lens. Dense, not long — make every sentence carry weight. HARD LIMIT: 400 words.' },
     evidence: {
       type: 'array',
-      description: 'Concrete things actually inspected: file paths, docs read, commands run, sources found on the web (with URLs). Empty means you did not look.',
+      maxItems: 12,
+      description: 'Concrete things actually inspected: file paths, docs read, commands run, sources found on the web (with URLs). Empty means you did not look. Max 12 items, one line each — cite the best, do not dump everything you read.',
       items: { type: 'string' },
     },
     risks: {
       type: 'array',
-      description: 'What this position costs or endangers, stated honestly — and sized. Say when a real risk is nonetheless small.',
+      maxItems: 8,
+      description: 'What this position costs or endangers, stated honestly — and sized. Say when a real risk is nonetheless small. Max 8, ranked by expected damage, one or two sentences each.',
       items: { type: 'string' },
     },
     confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
@@ -373,15 +380,17 @@ const REBUTTAL = {
   properties: {
     concessions: {
       type: 'array',
-      description: 'Points from other seats that genuinely change your mind. Name the seat. If none, say so — but check honestly first.',
+      maxItems: 8,
+      description: 'Points from other seats that genuinely change your mind. Name the seat. If none, say so — but check honestly first. Max 8, one or two sentences each.',
       items: { type: 'string' },
     },
     objections: {
       type: 'array',
-      description: 'Where another seat is wrong, and why. Name the seat and quote the claim you are attacking.',
+      maxItems: 8,
+      description: 'Where another seat is wrong, and why. Name the seat and quote the claim you are attacking. Max 8, one or two sentences each.',
       items: { type: 'string' },
     },
-    revisedRecommendation: { type: 'string', description: 'Your position after hearing the others. It is legitimate for this to be unchanged.' },
+    revisedRecommendation: { type: 'string', description: 'Your position after hearing the others. It is legitimate for this to be unchanged. HARD LIMIT: 250 words.' },
     confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
   },
 }
@@ -487,7 +496,11 @@ ${GROUNDING[ROSTER] || GROUNDING.engineering}
     ? 'READ-ONLY. Inspect all you like. Do not edit, stage, commit, or push anything.'
     : 'You may modify files, but only within your own worktree. Do not commit or push.'}
 - Take a side. A seat that hedges has abstained.
-- Be specific enough to be WRONG. A claim vague enough that it cannot be falsified is not a contribution.`
+- Be specific enough to be WRONG. A claim vague enough that it cannot be falsified is not a contribution.
+- **Your filing is a FILING, not an essay.** Research as deeply as you like — then file COMPACTLY. Respect
+  every field limit in the output schema. An over-long answer does not get truncated politely; it fails to
+  parse and your seat is dropped from the council entirely, which means you argued for nothing. Cite your
+  best evidence, not all of it. Density is the discipline; length is the failure.`
 
 // Name the roster and the seats out loud. The failure this guards against is a
 // silent fallback to the default roster, which is invisible until you read a
@@ -497,9 +510,10 @@ log(`Question: ${QUESTION}`)
 
 // --- Round 1: independent positions -----------------------------------------
 // Deliberately parallel and blind: no seat sees another's view yet, so we get
-// five real priors instead of an echo of whoever spoke first.
+// real priors instead of an echo of whoever spoke first.
 phase('Deliberate')
-const positions = (await parallel(SEATS.map((s) => () =>
+
+const filePosition = (s) =>
   agent(
     `${brief}
 
@@ -517,14 +531,36 @@ independently; the others hold different lenses and you will see their positions
 Do the work before you form the view. A seat that reasons from its priors and then decorates the result
 with a citation or two is the exact failure this council exists to prevent.`,
     { label: `seat:${s.seat}`, phase: 'Deliberate', model: s.model, effort: s.effort, schema: POSITION },
-  ).then((p) => (p ? { ...s, ...p } : null)),
-))).filter(Boolean)
+  ).then((p) => (p ? { ...s, ...p } : null))
 
-if (positions.length < 3) {
-  throw new Error(`council: only ${positions.length} seats reported; too few to deliberate. Aborting rather than pretending to have a council.`)
+const positions = (await parallel(SEATS.map((s) => () => filePosition(s)))).filter(Boolean)
+
+// An empty chair is not a smaller council — it is a rigged one. If the champion
+// dies, nobody argues FOR the thing and the verdict is negative by construction;
+// if the devil's advocate dies, nobody argues against it. A seat can be lost to a
+// transient API error or an over-long filing that failed to parse, and the old
+// `positions.length < 3` guard happily waved that through. Retry the empty chairs,
+// then refuse to convene rather than deliver a confident answer from a rigged room.
+const seatedNow = () => new Set(positions.map((p) => p.seat))
+
+let absent = SEATS.filter((s) => !seatedNow().has(s.seat))
+if (absent.length) {
+  log(`⚠ ${absent.length} seat(s) filed nothing: ${absent.map((s) => s.seat).join(', ')}. Retrying — a missing seat is a rigged council, not a smaller one.`)
+  const retried = (await parallel(absent.map((s) => () => filePosition(s)))).filter(Boolean)
+  positions.push(...retried)
 }
 
-log(`${positions.length} positions filed. Cross-examining.`)
+absent = SEATS.filter((s) => !seatedNow().has(s.seat))
+if (absent.length) {
+  throw new Error(
+    `council: ${absent.map((s) => s.seat).join(', ')} never filed a position, even after a retry. ` +
+    `Refusing to convene a council with an empty chair — the missing seat's argument would simply go unmade, ` +
+    `and the chair would synthesize a confident verdict from a record with a hole in it. ` +
+    `Check the agent transcripts: an over-long filing that fails to parse is the usual cause.`,
+  )
+}
+
+log(`All ${positions.length} seats filed. Cross-examining.`)
 
 // --- Round 2: cross-examination ---------------------------------------------
 // A barrier is genuinely correct here: every seat must read every other seat's
