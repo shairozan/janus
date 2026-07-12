@@ -1,0 +1,51 @@
+# Ignore files not needed for Docker builds
+
+# Git
+.git/
+.gitignore
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+janus
+janus.exe
+janus-*
+*.out
+coverage.html
+coverage.out
+
+# Test artifacts
+*.test
+*.prof
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Documentation
+*.md
+docs/
+
+# CI/CD
+.github/
+
+# Dependencies (will be downloaded inside container)
+vendor/
+
+# Local development files
+.env
+.env.local
+
+# Validation reports
+*_validation_report.json
+validation_*.json

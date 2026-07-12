@@ -1,0 +1,78 @@
+version: "2"
+run:
+  concurrency: 2
+  allow-parallel-runners: true
+linters:
+  enable:
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - errorlint
+    - exhaustive
+    - forbidigo
+    - gochecknoinits
+    - gocritic
+    - godot
+    - gosec
+    - nakedret
+    - nlreturn
+    - unconvert
+    - unparam
+    - usestdlibvars
+    - whitespace
+  settings:
+    errcheck:
+      check-type-assertions: true
+    errorlint:
+      errorf: true
+    forbidigo:
+      forbid:
+        - pattern: ^fmt\.Print.*$
+          msg: use log.Print* instead
+        - pattern: ^spew\.Dump$
+        - pattern: ^spew\.ConfigState\.Dump$
+        - pattern: ^ginkgo\.F[A-Z].*$
+    gocritic:
+      disabled-checks:
+        - commentFormatting
+    staticcheck:
+      checks: [ "all", "-ST1003" ]
+    unparam:
+      check-exported: true
+    unused:
+      field-writes-are-uses: false
+      local-variables-are-used: false
+    whitespace:
+      multi-if: true
+      multi-func: false
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - containedctx
+          - errcheck
+          - gocyclo
+          - gosec
+          - nlreturn
+          - staticcheck
+          - unused
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 10
+  max-same-issues: 10
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

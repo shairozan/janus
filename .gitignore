@@ -1,0 +1,145 @@
+# Janus-specific
+build/
+dist/
+*.app
+*.apk
+janus
+janus.exe
+janus-ubuntu*
+janus_*.deb
+deb-package/
+
+# Fyne-specific (from official Fyne repo)
+**/testdata/failed
+fyne-cross
+*.app
+*.apk
+
+# Go general
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Go workspace file
+go.work
+go.work.sum
+
+# env file
+.env
+
+# Architecture specific extensions/prefixes
+*.[568vq]
+[568vq].out
+*.cgo1.go
+*.cgo2.c
+_cgo_defun.c
+_cgo_gotypes.go
+_cgo_export.*
+_testmain.go
+
+# Object files, static and dynamic libs
+*.o
+*.a
+_obj
+_test
+
+# OS specific
+.DS_Store
+._*
+Thumbs.db
+
+# Editor/IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-v][a-z]
+[._]sw[a-p]
+Session.vim
+.netrwhist
+*~
+tags
+[._]*.un~
+
+# Temporary files
+*.orig
+*.rej
+.*.swp
+core
+.nfs.*
+
+
+# NONMEM files
+**/*.pnm
+
+# Claude
+.claude
+
+# Goreleaser artifacts
+dist
+
+# Test data history and NONMEM output files
+testdata/acop.janus_history.json
+testdata/*.cpu
+testdata/*.ext
+testdata/*.grd
+testdata/*.lst
+testdata/*.phi
+testdata/*.shk
+testdata/*.shm
+testdata/*.xml
+testdata/FCON
+testdata/FDATA
+testdata/FDATA.csv
+testdata/FMSG
+testdata/FREPORT
+testdata/FSIZES
+testdata/FSTREAM
+testdata/FSUBS
+testdata/FSUBS2
+testdata/FSUBS.f90
+testdata/gfortran.txt
+testdata/INTER
+testdata/LINKC.LNK
+testdata/LINK.LNK
+testdata/*.lnk
+testdata/nmprd4p.mod
+testdata/nonmem
+testdata/PRSIZES.f90
+testdata/temp_dir/
+
+# Random build artifacts
+waiter.exe
+
+# Validation reports (generated during testing)
+*validation_report.json
+**/validation/*_report.json
+audit_compliance_validation_report.json
+validation_auditor_report.json
+validation_technical_report.json
+audit.jsonl
+
+# License keys (should never be committed)
+.license_public_key.pem
+*license_public_key.pem
+*.pem
+
+testdata/.acop.settings.grid.json.license_public_key.pem

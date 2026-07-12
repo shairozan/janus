@@ -1,0 +1,25 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+permissions:
+  contents: read
+
+jobs:
+  # Run tests via the test workflow
+  tests:
+    uses: ./.github/workflows/test.yml
+    secrets: inherit
+
+  # Add any CI-specific jobs here (linting, security scans, etc.)
+  # For now, CI just depends on tests passing
+  ci-passed:
+    runs-on: ubuntu-latest
+    needs: tests
+    steps:
+      - name: CI passed
+        run: echo "✅ All CI checks passed!"

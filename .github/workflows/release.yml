@@ -1,0 +1,450 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # Run tests via the test workflow
+  tests:
+    uses: ./.github/workflows/test.yml
+    secrets: inherit
+
+  # Run validation tests (comprehensive CFR 21 Part 11 compliance tests)
+  validation:
+    needs: tests
+    runs-on: ubuntu-latest
+    container: dukeofubuntu/janus-ci:ubuntu22
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Setup license public key
+        uses: ./.github/actions/setup-license-key
+        with:
+          license-public-key: ${{ secrets.LICENSE_PUBLIC_KEY }}
+
+      - name: Start virtual display for GUI tests
+        shell: bash
+        run: |
+          echo "Starting Xvfb for GUI tests..."
+          Xvfb :99 -screen 0 1024x768x24 &
+          sleep 2
+          echo "Virtual display started on :99"
+
+      - name: Run validation tests
+        id: validation-run
+        shell: bash
+        run: |
+          echo "🔍 Running comprehensive validation tests..."
+          echo ""
+          echo "This validation suite tests all implemented requirements for CFR 21 Part 11 compliance:"
+          echo "- REQ-01 through REQ-04: NONMEM execution functionality"
+          echo "- REQ-05 through REQ-08: PSN and BBI integration"
+          echo "- REQ-18 through REQ-21: Configuration management"
+          echo ""
+
+          # Run validation tests with mage
+          if mage validationAll; then
+            echo ""
+            echo "✅ All validation tests passed!"
+            echo "🎯 System is ready for release - all requirements validated"
+          else
+            echo ""
+            echo "❌ Validation tests failed!"
+            echo "🚫 Release blocked - requirements validation failed"
+            exit 1
+          fi
+
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-reports
+          path: |
+            internal/validation/*_validation_report.json
+          retention-days: 30
+
+      - name: Validation Summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## 🎯 Validation Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.validation-run.outcome }}" == "success" ]; then
+            echo "✅ **Validation Status**: ALL REQUIREMENTS PASSED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Validated Requirements" >> $GITHUB_STEP_SUMMARY
+            echo "- **REQ-01 to REQ-04**: NONMEM execution and configuration ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **REQ-05 to REQ-06**: PsN integration and options ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **REQ-07 to REQ-08**: BBI integration and configuration ✅" >> $GITHUB_STEP_SUMMARY
+            echo "- **REQ-18 to REQ-21**: Configuration management and validation ✅" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🚀 **Release Status**: Approved for release" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Validation Status**: REQUIREMENTS FAILED" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🚫 **Release Status**: Blocked - validation requirements not met" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### CFR 21 Part 11 Compliance" >> $GITHUB_STEP_SUMMARY
+          echo "This validation ensures regulatory compliance for pharmaceutical software." >> $GITHUB_STEP_SUMMARY
+          echo "All system call generation and configuration management has been verified." >> $GITHUB_STEP_SUMMARY
+
+  # Build license-server binaries for Linux platforms
+  build-license-server:
+    needs: [tests, validation]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            container: "dukeofubuntu/janus-ci:ubuntu20"
+            target-name: "ubuntu2004"
+            binary-name: "license-server-ubuntu2004"
+          - os: ubuntu-latest
+            container: "dukeofubuntu/janus-ci:ubuntu22"
+            target-name: "ubuntu2204"
+            binary-name: "license-server-ubuntu2204"
+          - os: ubuntu-latest
+            container: "dukeofubuntu/janus-ci:ubuntu24"
+            target-name: "ubuntu2404"
+            binary-name: "license-server-ubuntu2404"
+
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build license-server binary
+        env:
+          CGO_ENABLED: 1
+        shell: bash
+        run: |
+          echo "🚀 Building license-server release binary for ${{ matrix.target-name }}..."
+          echo "✅ Tests passed - proceeding with release build"
+          go build -buildvcs=false -ldflags "-s -w -X github.com/pharmalytica/janus/internal/license/version.Version=${{ github.ref_name }} -X github.com/pharmalytica/janus/internal/license/version.Commit=${{ github.sha }} -X github.com/pharmalytica/janus/internal/license/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ') -X github.com/pharmalytica/janus/internal/license/version.BuiltBy=github-actions" -o ${{ matrix.binary-name }} ./cmd/license-server
+          echo "✅ Binary built successfully: ${{ matrix.binary-name }}"
+
+      - name: Upload license-server artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-server-${{ matrix.target-name }}
+          path: ${{ matrix.binary-name }}
+
+  build-matrix:
+    needs: [tests, validation]
+    strategy:
+      matrix:
+        include:
+          # Linux builds using Docker containers
+          - os: ubuntu-latest
+            container: "dukeofubuntu/janus-ci:ubuntu20"
+            target-name: "ubuntu2004"
+            binary-name: "janus-ubuntu2004"
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            container: "dukeofubuntu/janus-ci:ubuntu22"
+            target-name: "ubuntu2204"
+            binary-name: "janus-ubuntu2204"
+            goos: linux
+            goarch: amd64
+          - os: ubuntu-latest
+            container: "dukeofubuntu/janus-ci:ubuntu24"
+            target-name: "ubuntu2404"
+            binary-name: "janus-ubuntu2404"
+            goos: linux
+            goarch: amd64
+          # Windows native builds
+          - os: windows-latest
+            target-name: "windows-amd64"
+            binary-name: "janus-windows-amd64.exe"
+            goos: windows
+            goarch: amd64
+          # macOS native builds
+          - os: macos-latest
+            target-name: "macos-amd64"
+            binary-name: "janus-macos-amd64"
+            goos: darwin
+            goarch: amd64
+          - os: macos-14
+            target-name: "macos-arm64"
+            binary-name: "janus-macos-arm64"
+            goos: darwin
+            goarch: arm64
+
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Set up Go for non-container builds (Windows/macOS)
+      - name: Set up Go
+        if: '!matrix.container'
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      # Download dependencies
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Setup license public key
+        uses: ./.github/actions/setup-license-key
+        with:
+          license-public-key: ${{ secrets.LICENSE_PUBLIC_KEY }}
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: 1
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        shell: bash
+        run: |
+          echo "🚀 Building release binary for ${{ matrix.target-name }}..."
+          echo "Platform: ${{ matrix.goos }}/${{ matrix.goarch }}"
+          echo "✅ Tests passed - proceeding with release build"
+
+          # Build ldflags with version info
+          LDFLAGS="-s -w"
+          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Version=${{ github.ref_name }}"
+          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Commit=${{ github.sha }}"
+          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.BuiltBy=github-actions"
+
+          # Public key is embedded via go:embed from .license_public_key.pem (written in previous step)
+          if [ -f .license_public_key.pem ]; then
+            echo "🔑 License public key will be embedded via go:embed"
+          else
+            echo "ℹ️  No public key found - building without license validation"
+          fi
+
+          go build -buildvcs=false -ldflags "$LDFLAGS" -o ${{ matrix.binary-name }} .
+          echo "✅ Binary built successfully: ${{ matrix.binary-name }}"
+
+      # Create .deb packages only for Linux builds
+      - name: Create .deb package
+        if: matrix.goos == 'linux'
+        shell: bash
+        run: |
+          # Strip 'v' prefix from version for Debian package
+          VERSION="${{ github.ref_name }}"
+          DEB_VERSION="${VERSION#v}"
+
+          mkdir -p deb-package/DEBIAN
+          mkdir -p deb-package/usr/bin
+          mkdir -p deb-package/usr/share/doc/janus
+
+          # Copy binary
+          cp ${{ matrix.binary-name }} deb-package/usr/bin/janus
+          chmod +x deb-package/usr/bin/janus
+
+          # Copy documentation
+          cp README.md deb-package/usr/share/doc/janus/
+          [ -f LICENSE ] && cp LICENSE* deb-package/usr/share/doc/janus/ || true
+
+          # Create control file
+          cat > deb-package/DEBIAN/control << EOF
+          Package: janus
+          Version: ${DEB_VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Depends: libgl1-mesa-glx, libxrandr2, libxinerama1, libxcursor1, libxi6, libxss1
+          Maintainer: dukeofubuntu <noreply@github.com>
+          Description: Janus - NONMEM Grid Management Tool
+           A modern, cost-effective replacement for Certara Pirana using Go + Fyne.io,
+           with pluggable orchestrator backends and built-in CFR 21 Part 11 compliance.
+          Homepage: https://github.com/pharmalytica/janus
+          EOF
+
+          # Build .deb package
+          dpkg-deb --build deb-package janus_${DEB_VERSION}_${{ matrix.target-name }}_amd64.deb
+
+      # Create zip archive for Windows
+      - name: Create Windows zip archive
+        if: matrix.goos == 'windows'
+        shell: powershell
+        run: |
+          $files = @("${{ matrix.binary-name }}", "README.md")
+          if (Test-Path "LICENSE*") {
+            $files += Get-ChildItem -Path "LICENSE*" | Select-Object -ExpandProperty Name
+          }
+          Compress-Archive -Path $files -DestinationPath "janus-${{ matrix.target-name }}.zip"
+
+      # Create tar.gz archive for macOS
+      - name: Create macOS tar.gz archive
+        if: matrix.goos == 'darwin'
+        shell: bash
+        run: |
+          tar -czf janus-${{ matrix.target-name }}.tar.gz ${{ matrix.binary-name }} README.md LICENSE*
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: janus-${{ matrix.target-name }}
+          path: |
+            ${{ matrix.binary-name }}
+            janus_*_${{ matrix.target-name }}_amd64.deb
+            janus-${{ matrix.target-name }}.zip
+            janus-${{ matrix.target-name }}.tar.gz
+
+  release:
+    needs: [build-matrix, build-license-server]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: List downloaded artifacts (debug)
+        run: |
+          echo "=== Downloaded artifacts structure ==="
+          find . -name "janus*" -type f | head -20
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            **/janus-ubuntu2004
+            **/janus_*_ubuntu2004_amd64.deb
+            **/janus-ubuntu2204
+            **/janus_*_ubuntu2204_amd64.deb
+            **/janus-ubuntu2404
+            **/janus_*_ubuntu2404_amd64.deb
+            **/janus-windows-amd64.exe
+            **/janus-windows-amd64.zip
+            **/janus-macos-amd64
+            **/janus-macos-amd64.tar.gz
+            **/janus-macos-arm64
+            **/janus-macos-arm64.tar.gz
+            **/license-server-ubuntu2004
+            **/license-server-ubuntu2204
+            **/license-server-ubuntu2404
+          body: |
+            ## Release ${{ github.ref_name }}
+
+            Welcome to this new release of Janus!
+
+            ✅ **Quality Assurance**: This release has passed our comprehensive test suite including:
+            - **Unit tests**: Cross-platform (Ubuntu, Windows, macOS) with race detection
+            - **Integration tests**: Linux-only with mock external dependencies (SLURM, NONMEM)
+            - **Go compatibility**: Tested on versions 1.21, 1.22, and stable
+            - **Code quality**: Linting and security vulnerability scanning
+            - **CFR 21 Part 11 validation tests** covering all implemented requirements:
+              - REQ-01 to REQ-04: NONMEM execution and configuration validation
+              - REQ-05 to REQ-06: PsN integration and command generation
+              - REQ-07 to REQ-08: BBI integration and configuration options
+              - REQ-18 to REQ-21: Configuration management and validation framework
+
+            ## Installation
+
+            ### Linux (Debian/Ubuntu Packages)
+            Choose the package that matches your Ubuntu version:
+
+            **Ubuntu 20.04 (Focal)**:
+            ```bash
+            sudo dpkg -i janus_*_ubuntu2004_amd64.deb
+            ```
+
+            **Ubuntu 22.04 (Jammy)**:
+            ```bash
+            sudo dpkg -i janus_*_ubuntu2204_amd64.deb
+            ```
+
+            **Ubuntu 24.04 (Noble)**:
+            ```bash
+            sudo dpkg -i janus_*_ubuntu2404_amd64.deb
+            ```
+
+            ### Windows
+            1. Download `janus-windows-amd64.zip` from assets below
+            2. Extract the zip file
+            3. Run `janus-windows-amd64.exe`
+
+            ### macOS
+            **Intel Macs**:
+            ```bash
+            # Download janus-macos-amd64.tar.gz, then:
+            tar -xzf janus-macos-amd64.tar.gz
+            chmod +x janus-macos-amd64
+            ./janus-macos-amd64
+            ```
+
+            **Apple Silicon (M1/M2)**:
+            ```bash
+            # Download janus-macos-arm64.tar.gz, then:
+            tar -xzf janus-macos-arm64.tar.gz
+            chmod +x janus-macos-arm64
+            ./janus-macos-arm64
+            ```
+
+            ### Direct Binary Download
+            Download the appropriate binary for your platform from the assets below.
+
+            ### Using Go Install
+            ```bash
+            go install github.com/pharmalytica/janus@${{ github.ref_name }}
+            ```
+
+            ## License Server
+
+            This release includes the **License Server** binaries for managing Janus licensing and JWT token generation.
+
+            ### License Server Installation
+
+            **Ubuntu 20.04 (Focal)**:
+            ```bash
+            chmod +x license-server-ubuntu2004
+            sudo mv license-server-ubuntu2004 /usr/local/bin/license-server
+            ```
+
+            **Ubuntu 22.04 (Jammy)**:
+            ```bash
+            chmod +x license-server-ubuntu2204
+            sudo mv license-server-ubuntu2204 /usr/local/bin/license-server
+            ```
+
+            **Ubuntu 24.04 (Noble)**:
+            ```bash
+            chmod +x license-server-ubuntu2404
+            sudo mv license-server-ubuntu2404 /usr/local/bin/license-server
+            ```
+
+            ### License Server Configuration
+
+            Requires PostgreSQL and environment variables:
+            - `LICENSING_DATABASE_URL` - PostgreSQL connection string
+            - `LICENSING_ENCRYPTION_KEY` - 32-byte AES-GCM encryption key
+            - `LICENSING_PORT` - Server port (default: 8443)
+            - `LICENSING_HOST` - Bind address (default: 0.0.0.0)
+
+            See `cmd/license-server/README.md` for detailed documentation.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

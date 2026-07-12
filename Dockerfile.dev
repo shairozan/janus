@@ -1,0 +1,60 @@
+# Dockerfile.dev - Local development image with cached Go modules
+# Based on the CI image but with project dependencies pre-installed
+
+FROM dukeofubuntu/janus-ci:latest-ubuntu24
+
+# Set environment variables for consistent builds
+ENV CGO_ENABLED=1
+ENV GOPROXY=https://proxy.golang.org,direct
+ENV GOSUMDB=sum.golang.org
+ENV GOPATH=/go
+ENV PATH=${PATH}:/go/bin
+
+# Create cache directories
+RUN mkdir -p /go/pkg/mod && \
+    mkdir -p /root/.cache/go-build && \
+    mkdir -p /workspace
+
+# Set working directory
+WORKDIR /workspace
+
+# Copy go.mod and go.sum first for better layer caching
+COPY go.mod go.sum ./
+
+# Download and cache Go module dependencies
+# This layer will only rebuild when go.mod or go.sum changes
+RUN go mod download && go mod verify
+
+# Pre-compile common tools to speed up builds
+# Use same versions as the CI pipeline for consistency
+RUN curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.1.5 && \
+    go install golang.org/x/tools/cmd/goimports@latest && \
+    go install github.com/magefile/mage@latest
+
+# Copy source files to warm up build cache
+COPY . .
+
+# Warm up the module cache and build cache
+# This significantly speeds up subsequent builds
+RUN go mod tidy && \
+    go build -o /tmp/janus-warmup . || echo "Warmup build completed (errors expected)" && \
+    rm -f /tmp/janus-warmup
+
+# Pre-compile test dependencies by running a quick test
+RUN go test -tags=unit -run=NonExistentTest ./... 2>/dev/null || echo "Test warmup completed"
+
+# Clean up source files (they'll be mounted at runtime)
+RUN find /workspace -mindepth 1 -maxdepth 1 ! -name 'go.mod' ! -name 'go.sum' -exec rm -rf {} +
+
+# Add helpful scripts for development
+RUN echo '#!/bin/bash\necho "🐳 Janus Development Container"' > /usr/local/bin/dev-info && \
+    echo 'echo "Go version: $(go version)"' >> /usr/local/bin/dev-info && \
+    echo 'echo "Module cache: $(du -sh /go/pkg/mod 2>/dev/null || echo "empty")"' >> /usr/local/bin/dev-info && \
+    echo 'echo "Build cache: $(du -sh /root/.cache/go-build 2>/dev/null || echo "empty")"' >> /usr/local/bin/dev-info && \
+    chmod +x /usr/local/bin/dev-info
+
+# Set the working directory for runtime
+WORKDIR /workspace
+
+# Show development info on container start
+CMD ["/bin/bash", "-c", "dev-info && exec /bin/bash"]

@@ -1,0 +1,47 @@
+{
+  "organizations": [
+    {
+      "name": "Acme Pharmaceuticals",
+      "contact_name": "John Smith",
+      "email": "john.smith@acmepharma.com"
+    },
+    {
+      "name": "BioTech Research Inc",
+      "contact_name": "Jane Doe",
+      "email": "jane.doe@biotechresearch.com"
+    },
+    {
+      "name": "PharmaDev Corp",
+      "contact_name": "Bob Johnson",
+      "email": "bob.johnson@pharmadev.com"
+    }
+  ],
+  "agreements": [
+    {
+      "organization_name": "Acme Pharmaceuticals",
+      "tier": "enterprise",
+      "max_seats": 50,
+      "features": ["audit", "grid", "validation", "reporting"],
+      "cost_per_month": 5000.00,
+      "start_date": "2025-01-01",
+      "end_date": "2025-12-31"
+    },
+    {
+      "organization_name": "BioTech Research Inc",
+      "tier": "professional",
+      "max_seats": 20,
+      "features": ["audit", "grid"],
+      "cost_per_month": 2000.00,
+      "start_date": "2025-02-01",
+      "end_date": "2026-01-31"
+    },
+    {
+      "organization_name": "PharmaDev Corp",
+      "tier": "starter",
+      "max_seats": 5,
+      "features": ["audit"],
+      "cost_per_month": 500.00,
+      "start_date": "2025-03-01"
+    }
+  ]
+}

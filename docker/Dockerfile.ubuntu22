@@ -1,0 +1,52 @@
+# Dockerfile for Ubuntu 22.04 CI environment
+FROM ubuntu:22.04
+
+LABEL maintainer="shairozan"
+LABEL description="Janus CI/CD build environment - Ubuntu 22.04"
+LABEL version="1.0"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    gcc \
+    g++ \
+    gcc-multilib \
+    g++-multilib \
+    libc6-dev \
+    make \
+    pkg-config \
+    ca-certificates \
+    libgl1-mesa-dev \
+    libgl1-mesa-glx \
+    xorg-dev \
+    libxrandr2 \
+    libxinerama1 \
+    libxcursor1 \
+    libxi6 \
+    libxss1 \
+    xvfb \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go 1.25.1
+RUN curl -fsSL https://golang.org/dl/go1.25.1.linux-amd64.tar.gz | tar -xzC /usr/local
+ENV PATH=/usr/local/go/bin:$PATH
+ENV GOPATH=/go
+ENV PATH=$GOPATH/bin:$PATH
+
+WORKDIR /workspace
+RUN go install github.com/magefile/mage@latest && \
+    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.1.5
+
+ENV DISPLAY=:99
+ENV QT_QPA_PLATFORM=offscreen
+ENV FYNE_THEME=light
+ENV CGO_ENABLED=1
+
+RUN echo '#!/bin/bash\nXvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &\nexport DISPLAY=:99\nsleep 2\nexec "$@"' > /usr/local/bin/xvfb-run-janus.sh && chmod +x /usr/local/bin/xvfb-run-janus.sh
+
+ENTRYPOINT ["/usr/local/bin/xvfb-run-janus.sh"]
+CMD ["/bin/bash"]

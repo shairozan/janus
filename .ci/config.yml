@@ -1,0 +1,38 @@
+# Janus Configuration File
+# Default configuration for CI/CD testing
+
+# User Configuration
+# Note: Username is automatically detected from the OS user
+organization: "CI Testing Organization"
+default-directory: "/tmp/models"
+nonmem-path: "/usr/local/bin"
+nonmem-binary: "nmfe76"
+
+# Scheduler Configuration
+scheduler: "SLURM"
+
+# Execution Configuration
+execution-mode: "NONMEM"
+
+# Feature Flags
+audit-engine: true
+projects: true
+
+# Validation Configuration for CFR 21 Part 11 compliance
+validation:
+  iq: "/tmp/validation/iq-report.json"
+  oq: "/tmp/validation/oq-report.json"
+
+# Additional Settings (for future use)
+# slurm:
+#   host: "localhost"
+#   port: 6817
+#   timeout: 30s
+#
+# audit:
+#   backend: "filesystem"
+#   path: "~/.config/janus/audit"
+#
+# projects:
+#   default-template: "standard"
+#   auto-backup: true

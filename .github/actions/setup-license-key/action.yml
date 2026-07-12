@@ -1,0 +1,38 @@
+name: 'Setup License Public Key'
+description: 'Sets up the license public key for embedding via go:embed'
+inputs:
+  license-public-key:
+    description: 'The license server public key (PEM format)'
+    required: false
+    default: ''
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup license public key
+      shell: bash
+      env:
+        LICENSE_KEY: ${{ inputs.license-public-key }}
+      run: |
+        # Debug: Show what we received (first 50 chars only for security)
+        echo "Debug: LICENSE_KEY length: ${#LICENSE_KEY}"
+        if [ ${#LICENSE_KEY} -gt 0 ]; then
+          echo "Debug: First 50 chars: ${LICENSE_KEY:0:50}..."
+        fi
+
+        # Check if we received the key
+        if [ -z "$LICENSE_KEY" ]; then
+          echo "⚠️  No LICENSE_PUBLIC_KEY provided - creating empty placeholder"
+          echo "Building without license validation (dev mode)"
+          touch .license_public_key.pem
+        else
+          echo "🔑 Writing license public key for go:embed..."
+          printf '%s\n' "$LICENSE_KEY" > .license_public_key.pem
+          echo "✅ Public key embedded ($(wc -c < .license_public_key.pem) bytes)"
+
+          # Verify it starts with the PEM header
+          if head -1 .license_public_key.pem | grep -q "BEGIN PUBLIC KEY"; then
+            echo "✅ Valid PEM format detected"
+          else
+            echo "⚠️  Warning: Key doesn't start with PEM header"
+          fi
+        fi
