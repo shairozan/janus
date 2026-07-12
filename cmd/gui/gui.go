@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/pharmalytica/janus/internal/appsetup"
 	"github.com/pharmalytica/janus/internal/config"
 	"github.com/pharmalytica/janus/internal/gui"
 	"github.com/pharmalytica/janus/internal/license/validator"
@@ -86,6 +87,8 @@ func RunGUI(ctx context.Context, cfg *config.Config, args []string, licensePath 
 	licenseFile, err := os.Open(licensePath)
 	if err != nil {
 		app.ShowLicenseError(fmt.Errorf("failed to open license file at %s: %w", licensePath, err))
+		app.RunWithoutShowing() // Must run event loop to show error dialog
+
 		return fmt.Errorf("license file error: %w", err)
 	}
 	defer licenseFile.Close()
@@ -93,8 +96,10 @@ func RunGUI(ctx context.Context, cfg *config.Config, args []string, licensePath 
 	// Validate license before proceeding
 	licenseClaims, err := validateLicense(licenseFile, assets)
 	if err != nil {
-		// Show error dialog and exit
+		// Show error dialog and run event loop so it's visible
 		app.ShowLicenseError(err)
+		app.RunWithoutShowing() // Must run event loop to show error dialog
+
 		return fmt.Errorf("license validation error: %w", err)
 	}
 
@@ -106,7 +111,7 @@ func RunGUI(ctx context.Context, cfg *config.Config, args []string, licensePath 
 	app.SetLicenseClaims(licenseClaims)
 
 	// Set up cleanup on context cancellation or app shutdown
-	defer app.Cleanup()
+	defer app.Cleanup() //nolint:contextcheck // Fyne GUI callbacks don't propagate context
 
 	// Check if a model file was provided
 	var modelFilePath string
@@ -132,6 +137,11 @@ func RunGUI(ctx context.Context, cfg *config.Config, args []string, licensePath 
 			// Set config and show main interface
 			app.SetConfiguration(fullConfig)
 
+			// Start the MCP server if enabled (non-fatal on failure).
+			if err := app.StartMCPServer(); err != nil {
+				log.Printf("Warning: MCP server did not start: %v\n", err)
+			}
+
 			// Load model file if provided
 			if modelFilePath != "" {
 				if err := app.LoadModelFile(modelFilePath); err != nil {
@@ -153,17 +163,22 @@ func RunGUI(ctx context.Context, cfg *config.Config, args []string, licensePath 
 		return nil
 	} else {
 		// Config exists, start normally
-		app.SetConfiguration(cfg)
+		app.SetConfiguration(cfg) //nolint:contextcheck // Fyne GUI callbacks don't propagate context
+
+		// Start the MCP server if enabled (non-fatal on failure).
+		if err := app.StartMCPServer(); err != nil { //nolint:contextcheck // Fyne GUI callbacks don't propagate context
+			log.Printf("Warning: MCP server did not start: %v\n", err)
+		}
 
 		// Load model file if provided
 		if modelFilePath != "" {
-			if err := app.LoadModelFile(modelFilePath); err != nil {
+			if err := app.LoadModelFile(modelFilePath); err != nil { //nolint:contextcheck // Fyne GUI callbacks don't propagate context
 				// TODO: Show error dialog to user about model loading failure
 				log.Printf("Error loading model file: %v\n", err)
 			}
 		}
 
-		app.Run() //nolint:contextcheck // This is just building the UI components
+		app.Run() //nolint:contextcheck // Fyne GUI callbacks don't propagate context
 
 		return nil
 	}
@@ -181,7 +196,14 @@ func getConfigPath() string {
 func getDefaultLicensePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "./license.jwt"
+		// If home dir lookup fails, use executable directory instead of CWD
+		// This ensures we look in the right place even when launched from shortcuts
+		exePath, exeErr := os.Executable()
+		if exeErr != nil {
+			return "./license.jwt" // Last resort fallback
+		}
+
+		return filepath.Join(filepath.Dir(exePath), "license.jwt")
 	}
 
 	return filepath.Join(home, ".config", "janus", "license.jwt")
@@ -189,25 +211,5 @@ func getDefaultLicensePath() string {
 
 // validateLicense reads and validates a license JWT from the provided reader.
 func validateLicense(r io.Reader, assets embed.FS) (*validator.Claims, error) {
-	// Read the JWT token from the reader
-	tokenBytes, err := io.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read license: %w", err)
-	}
-
-	tokenString := string(tokenBytes)
-
-	// Create validator with embedded assets
-	v, err := validator.NewValidator(assets)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create validator: %w", err)
-	}
-
-	// Validate the token
-	claims, err := v.ValidateToken(tokenString)
-	if err != nil {
-		return nil, fmt.Errorf("invalid license token: %w", err)
-	}
-
-	return claims, nil
+	return appsetup.ValidateLicenseReader(r, assets)
 }

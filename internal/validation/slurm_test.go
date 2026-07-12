@@ -161,8 +161,8 @@ func TestREQ63_SLURMGridIntegration(t *testing.T) {
 						Port:    22,
 						Timeout: "30s",
 					},
-					NonmemPath:   "/bin",     // Use /bin directory for testing
-					NonmemBinary: "echo",    // Use echo binary for testing
+					NonmemPath:   "/bin", // Use /bin directory for testing
+					NonmemBinary: "echo", // Use echo binary for testing
 				},
 			}
 
@@ -210,8 +210,8 @@ func TestREQ64_SLURMSchedulerConfiguration(t *testing.T) {
 		TestFunc: func(t *testing.T) {
 			// Test that execution modes work with SLURM scheduler
 			validModes := config.GetValidExecutionModes()
-			expectedModes := []string{"NONMEM", "BBI", "PSN"}
-			assert.Equal(t, expectedModes, validModes, "Valid execution modes should be NONMEM, BBI, PSN")
+			expectedModes := []string{"NONMEM", "BBI", "PSN", "HERMES"}
+			assert.Equal(t, expectedModes, validModes, "Valid execution modes should be NONMEM, BBI, PSN, HERMES")
 
 			// Create input configuration with SLURM scheduler
 			input := &config.Input{

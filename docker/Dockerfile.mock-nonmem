@@ -1,0 +1,58 @@
+# Dockerfile for Mock NONMEM Testing Image
+#
+# This image extends the Hermes base image with a mock NONMEM installation
+# for testing purposes. It uses the fast mock script that generates output
+# files instantly without streaming delays.
+#
+# Usage:
+#   docker build -f docker/Dockerfile.mock-nonmem -t janus-mock-nonmem:latest .
+#   docker run -p 50051:50051 janus-mock-nonmem:latest
+#
+# For use with Janus executor:
+#   1. Create a .janus.config.json with:
+#      {
+#        "image": "janus-mock-nonmem:latest",
+#        "resources": {"cpu_cores": 1, "memory": "1Gi"},
+#        "container_command_path": "/opt/NONMEM/nm75/run/nmfe75"
+#      }
+#   2. Run: executor acop.mod acop.lst
+
+FROM ghcr.io/pharmalytica/hermes:main-trixie
+
+# Switch to root to install mock NONMEM (base image runs as hermes user)
+USER root
+
+# Install mock NONMEM scripts and test data
+COPY testdata/mock-nonmem /opt/mock-nonmem
+
+# Create a fake NONMEM installation structure
+# This mimics the real NONMEM directory structure:
+# /opt/NONMEM/nm75/run/nmfe75
+# Also link the STDOUT and output files so they're accessible from both locations
+RUN apt-get update && apt-get install -y dos2unix && \
+    find /opt/mock-nonmem -type f -name "*.sh" -exec dos2unix {} \; && \
+    apt-get remove -y dos2unix && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* && \
+    mkdir -p /opt/NONMEM/nm75/run && \
+    ln -s /opt/mock-nonmem/mock-nonmem-fast.sh /opt/NONMEM/nm75/run/nmfe75 && \
+    ln -s /opt/mock-nonmem/STDOUT /opt/NONMEM/nm75/run/STDOUT && \
+    ln -s /opt/mock-nonmem/acop.lst /opt/NONMEM/nm75/run/acop.lst && \
+    ln -s /opt/mock-nonmem/acop.ext /opt/NONMEM/nm75/run/acop.ext && \
+    ln -s /opt/mock-nonmem/acop.xml /opt/NONMEM/nm75/run/acop.xml && \
+    ln -s /opt/mock-nonmem/acop.phi /opt/NONMEM/nm75/run/acop.phi && \
+    chmod +x /opt/mock-nonmem/*.sh
+
+# Switch back to hermes user for runtime
+USER hermes
+
+# Add labels for container identification
+LABEL com.pharmalytica.janus.mock="true" \
+      com.pharmalytica.janus.nonmem.version="mock-7.5" \
+      org.opencontainers.image.title="Janus Mock NONMEM" \
+      org.opencontainers.image.description="Mock NONMEM container for Janus testing" \
+      org.opencontainers.image.source="https://github.com/pharmalytica/janus"
+
+# Hermes will serve on port 50051
+EXPOSE 50051
+
+# Default command is to serve (inherited from base image)
+# CMD ["serve"]

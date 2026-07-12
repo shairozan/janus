@@ -27,7 +27,7 @@ func NewEncryptor(encryptionKey []byte) (*Encryptor, error) {
 }
 
 // Encrypt encrypts plaintext using AES-256-GCM and returns base64-encoded ciphertext.
-// Format: base64(nonce + ciphertext + tag)
+// Format: base64(nonce + ciphertext + tag).
 func (e *Encryptor) Encrypt(plaintext string) (string, error) {
 	block, err := aes.NewCipher(e.key)
 	if err != nil {
@@ -90,7 +90,7 @@ func (e *Encryptor) Decrypt(ciphertext string) (string, error) {
 
 // DeriveKeyFromPassphrase derives a 32-byte encryption key from a passphrase.
 // Uses a simple approach for now - in production, use PBKDF2 or Argon2.
-func DeriveKeyFromPassphrase(passphrase string, salt []byte) []byte {
+func DeriveKeyFromPassphrase(passphrase string, _ []byte) []byte {
 	// TODO: Use proper KDF like PBKDF2 or Argon2
 	// For now, using a simple approach
 	key := make([]byte, 32)

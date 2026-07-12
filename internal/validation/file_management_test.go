@@ -44,7 +44,7 @@ func TestREQ26_ModelFileValidation(t *testing.T) {
 			// Verify executor handles file extension validation
 			cfg := &config.Config{
 				Input: config.Input{
-					NonmemPath: "/bin/echo",
+					NonmemPath:    "/bin/echo",
 					ExecutionMode: config.ExecutionModeNONMEM,
 				},
 			}
@@ -87,7 +87,7 @@ func TestREQ27_OutputFileManagement(t *testing.T) {
 
 			cfg := &config.Config{
 				Input: config.Input{
-					NonmemPath: "/bin/echo",
+					NonmemPath:    "/bin/echo",
 					ExecutionMode: config.ExecutionModeNONMEM,
 				},
 			}

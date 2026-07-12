@@ -6,9 +6,10 @@ import (
 
 // TokenRequest represents a request to generate a JWT token.
 type TokenRequest struct {
-	AgreementID int64  `json:"agreement_id"`
-	UserEmail   string `json:"user_email"`
-	Duration    int64  `json:"duration_seconds"` // Optional, defaults to 365 days
+	AgreementID      int64  `json:"agreement_id"`
+	UserEmail        string `json:"user_email"`
+	Duration         int64  `json:"duration_seconds"`   // Optional, defaults to 365 days
+	SigningPublicKey string `json:"signing_public_key"` // Client's RSA public key (PEM format) for run log signing
 }
 
 // TokenResponse represents a JWT token response.

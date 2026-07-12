@@ -1,0 +1,97 @@
+# syntax=docker/dockerfile:1
+#
+# Janus PsN DEV image — real NONMEM + a modern, pinned PsN, for running PsN
+# analyses end-to-end locally (bootstrap, vpc, scm, …) and capturing their real
+# output artifacts (e.g. vpc_results.csv) to develop the result renderers (#189).
+#
+# Unlike docker/Dockerfile.psn (the production orchestration image: PsN + a *dummy*
+# compiler on the Hermes base, no NONMEM/license), this image is built on the real
+# NONMEM image so PsN can actually fit and simulate. It is NOT for distribution —
+# it carries licensed NONMEM. Keep it local.
+#
+# Build (from the repo root):
+#   docker build -f docker/Dockerfile.psn-dev -t janus-psn-dev:5.7.1 .
+#
+# Use it interactively, mounting a directory of models as /work:
+#   docker run --rm -it -v /path/to/models:/work -w /work janus-psn-dev:5.7.1
+#   # then, inside the container:
+#   #   vpc acop.mod -samples=200 -auto_bin=auto      # -> writes vpc_results.csv
+#   #   bootstrap acop.mod -samples=200               # -> raw_results_*.csv
+#   #   scm acop.mod -config_file=scm_config.scm      # -> scmlog.txt
+#
+# Or run a single PsN command non-interactively (args replace the default shell):
+#   docker run --rm -v /path/to/models:/work -w /work janus-psn-dev:5.7.1 \
+#       vpc acop.mod -samples=200 -auto_bin=auto
+#
+# PsN writes vpc_results.csv itself; R/Xpose are only needed for PsN's optional
+# auto-plots, which we don't use — Janus renders the results natively (#189).
+
+ARG NONMEM_BASE=ghcr.io/pharmalytica/nonmem-hermes:751
+FROM ${NONMEM_BASE}
+
+# Same PsN release the production orchestration image pins, so the artifacts this
+# image produces match what Janus targets. Must be >= 4.6.0.
+# Releases: https://github.com/UUPharmacometrics/PsN/releases
+ARG PSN_VERSION=5.7.1
+
+# NONMEM in the base lives at /opt/NONMEM/nm75/run/nmfe75. PsN locates nmfe under
+# <nm_version path>/run/, so the path we register is the installation directory.
+ARG NM_PATH=/opt/NONMEM/nm75
+ARG NM_VERSION=7.5
+
+# Install PsN's toolchain as root regardless of the base image's runtime user.
+USER root
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# System + Perl tooling PsN needs (cpanminus installs the CPAN modules). Harmless
+# if the NONMEM base already carries some of these.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        perl build-essential cpanminus curl ca-certificates dos2unix \
+        libexpat1-dev procps \
+ && rm -rf /var/lib/apt/lists/*
+
+# PsN's required Perl modules — the exact set checked by setup.pl (@nix_modules);
+# PsN uses Mouse (not Moose) and Math::Random::Free (not Math::Random). setup.pl
+# itself uses File::HomeDir + File::Copy::Recursive at compile time.
+RUN cpanm --notest \
+        Mouse MouseX::Params::Validate \
+        Statistics::Distributions Math::Random::Free Math::SigFigs Math::MatrixReal \
+        File::HomeDir File::Copy::Recursive Capture::Tiny YAML Archive::Zip \
+ && rm -rf /root/.cpanm
+
+# Install PsN non-interactively. setup.pl on Linux-as-root asks, in order: 3
+# install-dir prompts (blank = defaults), then check-modules / install-PsNR /
+# install-pharmpy / install-test-library / help-create-config — we answer n to
+# all five. Answering n to "help create config" skips the interactive NM-version
+# loop and copies the template psn.conf; we then register the real NONMEM as the
+# default nm_version so `vpc`/`bootstrap`/`execute` work with no extra flags.
+RUN curl -fsSL -o /tmp/psn.tar.gz \
+        "https://github.com/UUPharmacometrics/PsN/releases/download/v${PSN_VERSION}/PsN-${PSN_VERSION}.tar.gz" \
+ && mkdir -p /tmp/psn \
+ && tar -xzf /tmp/psn.tar.gz -C /tmp/psn --strip-components=1 \
+ && cd /tmp/psn \
+ && printf '\n\n\nn\nn\nn\nn\nn\n' | perl setup.pl \
+ && PSNCONF="$(find / -name psn.conf -path '*PsN_*' | head -1)" \
+ && test -n "$PSNCONF" \
+ # The template ships an empty [nm_versions] section; insert our entries INTO it
+ # (rather than appending a second section, whose precedence is parser-defined).
+ && sed -i "/^\[nm_versions\]/a default=${NM_PATH},${NM_VERSION}\nnm75=${NM_PATH},${NM_VERSION}" "$PSNCONF" \
+ && cd / && rm -rf /tmp/psn.tar.gz /tmp/psn
+
+# Sanity-check at build time that the real nmfe is where we registered it — fails
+# the build early (rather than at first run) if the base ever moves NONMEM.
+RUN test -x "${NM_PATH}/run/nmfe${NM_VERSION/./}"
+
+WORKDIR /work
+
+LABEL io.pharmalytica.janus.type="dev" \
+      io.pharmalytica.janus.platform="psn" \
+      io.pharmalytica.janus.display-name="Janus PsN dev (real NONMEM + PsN)" \
+      io.pharmalytica.janus.description="Real NONMEM + pinned PsN for local end-to-end PsN runs and result-artifact capture (#189). Not for distribution." \
+      io.pharmalytica.psn.version="${PSN_VERSION}" \
+      org.opencontainers.image.source="https://github.com/pharmalytica/janus"
+
+# Drop to a shell by default for interactive dev; passing a command (e.g. `vpc …`)
+# replaces it. Clear any inherited Hermes serve entrypoint so args run as written.
+ENTRYPOINT []
+CMD ["bash"]

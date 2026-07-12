@@ -23,7 +23,6 @@ type MockSLURMBinaryManager struct {
 	slurmBinary string
 }
 
-
 func NewMockSLURMBinaryManager() (*MockSLURMBinaryManager, error) {
 	tempDir, err := os.MkdirTemp("", "slurm_cli_test")
 	if err != nil {
@@ -50,7 +49,6 @@ func (m *MockSLURMBinaryManager) Cleanup() {
 func (m *MockSLURMBinaryManager) GetBinaryPath() string {
 	return m.slurmBinary
 }
-
 
 func (m *MockSLURMBinaryManager) createMockBinaries() error {
 	// Create mock binaries for sbatch, squeue, scancel, scontrol
@@ -198,7 +196,6 @@ exit /b 0
 	}
 }
 
-
 func TestSLURMCLIClientIntegration(t *testing.T) {
 	mockManager, err := NewMockSLURMBinaryManager()
 	require.NoError(t, err)
@@ -278,7 +275,7 @@ echo "Hello from SLURM CLI job"`
 		// With our mock, this will return the hardcoded job status
 		// In a real implementation, you might want more sophisticated job lookup
 		status, err := client.GetJobStatus(ctx, "999999")
-		assert.NoError(t, err) // Mock always finds the hardcoded job
+		assert.NoError(t, err)                  // Mock always finds the hardcoded job
 		assert.Equal(t, "123456", status.JobID) // Returns hardcoded job ID
 	})
 

@@ -107,9 +107,9 @@ func (m *MockSLURMServer) handleJobSubmit(w http.ResponseWriter, r *http.Request
 
 	// Return successful submission response
 	response := map[string]interface{}{
-		"job_id": jobID,
+		"job_id":  jobID,
 		"step_id": "batch",
-		"errors": []interface{}{},
+		"errors":  []interface{}{},
 	}
 
 	w.Header().Set("Content-Type", "application/json")

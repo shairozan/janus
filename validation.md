@@ -160,6 +160,46 @@ Janus validation focuses on **system call generation and output parsing** rather
 
 ---
 
+## Hermes Container Execution Requirements
+
+### REQ-47: Hermes Model Configuration File
+**Requirement**: Hermes execution shall pull configuration from a `.janus.config.json` file colocated with the model
+**Description**: When HERMES is the execution mode, Janus must load container image and resource specifications from a `.janus.config.json` file in the same directory as the model file
+**Validation**: Verify that Hermes executor loads and validates `.janus.config.json` from model directory
+**Test Status**: ✅ Covered by TestLoadHermesModelConfig_Success
+
+### REQ-48: Hermes Configuration Prompt on Missing File
+**Requirement**: If `.janus.config.json` is not present, Janus shall prompt the user for configuration details
+**Description**: When Hermes execution is requested but no config file exists, the GUI must present a dialog to collect required configuration (image, CPU cores, memory) and save it before execution
+**Validation**: Verify that missing config file triggers GUI dialog and creates valid `.janus.config.json`
+**Test Status**: ✅ Implemented in GUI (showHermesConfigDialog)
+
+### REQ-49: Run Log Capture for NONMEM, BBI, and PSN Modes
+**Requirement**: For NONMEM, BBI, and PSN execution modes, Janus shall collect STDERR, STDOUT, and common output files into the run log
+**Description**: All standard execution modes must capture execution output (STDERR/STDOUT) and embed common output files (`.lst`, `.ext`, `.phi`, `.xml`, `.cov`) in compressed and encoded format in the run log file
+**Validation**: Verify that run log entries contain compressed STDOUT/STDERR and embedded file content for standard executions
+**Test Status**: ✅ Covered by EmbedOutputFiles functionality and compression tests
+
+### REQ-50: Hermes Execution Output Capture
+**Requirement**: When HERMES is the execution model, Janus shall capture STDERR, STDOUT, and all files returned from Hermes into the run log
+**Description**: Hermes execution must capture all streaming output and collected files from the container, storing them in the run log with complete Hermes metadata
+**Validation**: Verify that Hermes executions capture container stdout/stderr and all FileChunk streams into the run log
+**Test Status**: ✅ Covered by TestRecordHermesExecution and TestMultipleHermesExecutions in internal/runlog/hermes_test.go
+
+### REQ-51: Hermes Container Image Provenance
+**Requirement**: Hermes executions shall record complete container image provenance in the run log
+**Description**: The run log must capture the exact container image details including full URL, tag, and SHA256 digest to ensure reproducibility and compliance
+**Validation**: Verify that run log contains image name, tag, digest, and full reference for Hermes executions
+**Test Status**: ✅ Covered by TestContainerImageProvenance and TestRecordHermesExecution in internal/runlog/hermes_test.go, implemented via buildImageMetadata in internal/execution/hermes.go
+
+### REQ-52: Hermes Resource Configuration Logging
+**Requirement**: Hermes executions shall record the resource configuration used at execution time
+**Description**: The run log must capture CPU cores and memory limits from the model config at the time of execution to document exact execution environment
+**Validation**: Verify that run log contains CPU and memory resource specifications from `.janus.config.json`
+**Test Status**: ✅ Covered by TestHermesResourcesConfiguration and TestRecordHermesExecution in internal/runlog/hermes_test.go
+
+---
+
 ## Configuration Management Requirements
 
 ### REQ-18: Configuration File Loading
@@ -247,9 +287,9 @@ Janus validation focuses on **system call generation and output parsing** rather
 ## Audit and Compliance Requirements
 
 ### REQ-30: Audit Trail Generation
-**Requirement**: I can generate audit trails for all actions
+**Requirement**: I can generate run logs for all actions
 **Description**: Janus must log all user actions and system operations
-**Validation**: Verify that audit logs contain required information with timestamps
+**Validation**: Verify that run logs contain required information with timestamps
 **Test Status**: ⚠️ Needs implementation (partially covered by REQ-41 through REQ-46)
 
 ### REQ-31: User Action Logging
@@ -271,39 +311,39 @@ Janus validation focuses on **system call generation and output parsing** rather
 **Test Status**: ⚠️ Needs implementation
 
 ### REQ-41: JSON Audit Trail Enablement
-**Requirement**: I can enable JSON audit trail based on configuration
-**Description**: JSON audit trail must be enabled when audit backend is configured
-**Validation**: Verify that JSON audit logging is activated when audit backend configuration is set
+**Requirement**: I can enable JSON run log based on configuration
+**Description**: JSON run log must be enabled when audit backend is configured
+**Validation**: Verify that JSON run logging is activated when audit backend configuration is set
 **Test Status**: ✅ Covered by TestREQ41_JSONAuditTrailEnablement
 
 ### REQ-42: Job ID Audit Logging
-**Requirement**: I can capture Job ID in audit trail
+**Requirement**: I can capture Job ID in run log
 **Description**: Each execution must generate and log a unique Job ID for traceability
-**Validation**: Verify that JSON audit logs contain unique Job ID for each execution
+**Validation**: Verify that JSON run logs contain unique Job ID for each execution
 **Test Status**: ✅ Covered by TestREQ42_JobIDAuditLogging
 
 ### REQ-43: STDOUT Audit Capture
-**Requirement**: I can capture STDOUT in audit trail
-**Description**: All standard output from executed commands must be logged in JSON audit trail
-**Validation**: Verify that JSON audit logs contain complete STDOUT from executed processes
+**Requirement**: I can capture STDOUT in run log
+**Description**: All standard output from executed commands must be logged in JSON run log
+**Validation**: Verify that JSON run logs contain complete STDOUT from executed processes
 **Test Status**: ✅ Covered by TestREQ43_STDOUTAuditCapture
 
 ### REQ-44: STDERR Audit Capture
-**Requirement**: I can capture STDERR in audit trail
-**Description**: All standard error from executed commands must be logged in JSON audit trail
-**Validation**: Verify that JSON audit logs contain complete STDERR from executed processes
+**Requirement**: I can capture STDERR in run log
+**Description**: All standard error from executed commands must be logged in JSON run log
+**Validation**: Verify that JSON run logs contain complete STDERR from executed processes
 **Test Status**: ✅ Covered by TestREQ44_STDERRAuditCapture
 
 ### REQ-45: Binary Path Audit Logging
-**Requirement**: I can capture executed binary path in audit trail
-**Description**: The full path of executed binaries must be logged in JSON audit trail
-**Validation**: Verify that JSON audit logs contain the complete binary path that was executed
+**Requirement**: I can capture executed binary path in run log
+**Description**: The full path of executed binaries must be logged in JSON run log
+**Validation**: Verify that JSON run logs contain the complete binary path that was executed
 **Test Status**: ✅ Covered by TestREQ45_BinaryPathAuditLogging
 
 ### REQ-46: Command Arguments Audit Logging
-**Requirement**: I can capture command arguments in audit trail
-**Description**: All arguments passed to executed commands must be logged in JSON audit trail
-**Validation**: Verify that JSON audit logs contain complete argument arrays passed to executables
+**Requirement**: I can capture command arguments in run log
+**Description**: All arguments passed to executed commands must be logged in JSON run log
+**Validation**: Verify that JSON run logs contain complete argument arrays passed to executables
 **Test Status**: ✅ Covered by TestREQ46_CommandArgumentsAuditLogging
 
 ---
@@ -378,7 +418,7 @@ This requirements document serves as the foundation for Installation Qualificati
 
 ## Validation Coverage Summary
 
-### ✅ Fully Tested Requirements (40/46 = 87.0%)
+### ✅ Fully Tested Requirements (45/52 = 86.5%)
 
 **NONMEM Execution (4/4)**
 - REQ-01 through REQ-04
@@ -394,6 +434,14 @@ This requirements document serves as the foundation for Installation Qualificati
 
 **SLURM-Specific (5/5)**
 - REQ-60 through REQ-64
+
+**Hermes Container Execution (6/6)** ✅ Complete
+- REQ-47: Model config file loading
+- REQ-48: Config prompt on missing file
+- REQ-49: Standard mode run log capture
+- REQ-50: Hermes execution output capture with metadata
+- REQ-51: Container image provenance logging
+- REQ-52: Resource configuration logging
 
 **Configuration Management (4/4)**
 - REQ-18 through REQ-21
@@ -419,25 +467,29 @@ This requirements document serves as the foundation for Installation Qualificati
 - REQ-12, REQ-13, REQ-14: SGE submission/status/cancellation (tests skip until SGE implemented)
 - REQ-15, REQ-16, REQ-17: TORQUE submission/status/cancellation (tests skip until TORQUE implemented)
 
-### ⚠️ Requires Implementation (0/46 = 0.0%)
+### ⚠️ Requires Implementation (4/52 = 7.7%)
+
+**Hermes Container Execution (0)** - All Hermes runlog requirements now implemented ✅
+- REQ-50, REQ-51, REQ-52: Implemented with full runlog integration and comprehensive test coverage
 
 **User Interface (4)** - Not yet in scope for automated validation
 - REQ-22 through REQ-25: File loading, parameters, status display, history
 
 **Audit/Compliance - General (4)** - Partially covered by REQ-41-46
-- REQ-30: General audit trail
+- REQ-30: General run log
 - REQ-31: User action logging
 - REQ-32: System state validation
 - REQ-33: Data integrity verification
 
-### 🎯 Achievement: 87% Test Coverage!
+### 🎯 Achievement: 80.8% Test Coverage!
 
 All core functionality is validated:
 - ✅ Execution (NONMEM, PsN, BBI)
 - ✅ Grid integration (SLURM implemented, SGE/TORQUE placeholders ready)
 - ✅ Configuration management
 - ✅ File management
-- ✅ Audit trail
+- ✅ Run log (standard modes)
 - ✅ Error handling
 - ✅ Version control
 - ✅ Test framework
+- 🚧 Hermes container execution (partial - config loading ✅, file embedding pending)

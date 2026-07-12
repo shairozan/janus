@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: license-server-config
+  labels:
+    app.kubernetes.io/name: license-server
+data:
+  # Non-secret runtime configuration. Secret values (DATABASE_URL, ENCRYPTION_KEY,
+  # POSTGRES_PASSWORD) live in the SOPS-encrypted Secret, not here.
+
+  # The container listens on 8080 (matches docker/license/Dockerfile EXPOSE).
+  LICENSING_PORT: "8080"
+  LICENSING_HOST: "0.0.0.0"
+
+  # OIDC (Cognito) values are environment-specific and are provided by each
+  # overlay via a ConfigMap patch (e.g. overlays/gke/oidc-config-patch.yaml).
+  # LICENSING_OIDC_ISSUER, LICENSING_OIDC_CLIENT_ID, LICENSING_OIDC_ALLOWED_DOMAINS
+
+  # LICENSING_REDIS_URL is environment-specific and is provided by each
+  # overlay via the same ConfigMap patch as the OIDC values.
+
+  # Postgres bootstrap (non-secret). The password is supplied via the Secret.
+  POSTGRES_USER: "janus"
+  POSTGRES_DB: "janus_license"

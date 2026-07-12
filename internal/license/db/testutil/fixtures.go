@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
 	"github.com/pharmalytica/janus/internal/license/models"
 )
 
@@ -46,11 +47,11 @@ func SeedLicense(t *testing.T, q Querier, name, tier string, features []string, 
 	t.Helper()
 
 	license := &models.License{
-		Name:       name,
-		Tier:       tier,
-		Features:   models.Features(features),
-		MSRPCents:  msrpCents,
-		CreatedAt:  time.Now(),
+		Name:      name,
+		Tier:      tier,
+		Features:  models.Features(features),
+		MSRPCents: msrpCents,
+		CreatedAt: time.Now(),
 	}
 
 	query := `INSERT INTO licenses (name, tier, features, msrp_cents, created_at)
@@ -115,7 +116,7 @@ func StandardFixtures(t *testing.T, q Querier) (*models.Organization, *models.Li
 	t.Helper()
 
 	org := SeedOrganization(t, q, "TestOrg")
-	license := SeedLicense(t, q, "Pro", "professional", []string{"audit", "grid"}, 100000)
+	license := SeedLicense(t, q, "Pro", "professional", []string{"runlog", "grid"}, 100000)
 	agr := SeedAgreement(t, q, org.ID, license.ID, 10, 10000)
 
 	return org, license, agr

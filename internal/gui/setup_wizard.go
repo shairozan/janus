@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 
 	"github.com/pharmalytica/janus/internal/config"
+	"github.com/pharmalytica/janus/internal/pirana"
 )
 
 // SetupWizard handles first-time configuration setup.
@@ -136,6 +137,30 @@ This is your first time running Janus. Let's configure some basic settings to ge
 	// Initial state
 	updateSlurmFields()
 
+	// Import-from-Pirana shortcut: detect an existing Pirana configuration and
+	// prefill the form with whatever maps onto Janus settings. The user still
+	// reviews and saves via the normal flow below.
+	importBtn := widget.NewButton("Import from Pirana", func() {
+		importFromPirana(sw.window, func(s *pirana.Settings) {
+			if s.NonmemPath != "" {
+				nonmemEntry.SetText(s.NonmemPath)
+			}
+			if s.NonmemBinary != "" {
+				binaryEntry.SetText(s.NonmemBinary)
+			}
+			if s.DefaultDir != "" {
+				dirEntry.SetText(s.DefaultDir)
+			}
+			if s.Scheduler != "" {
+				schedulerSelect.SetSelected(s.Scheduler)
+				updateSlurmFields()
+			}
+			if s.Researcher != "" && orgEntry.Text == "" {
+				orgEntry.SetText(s.Researcher)
+			}
+		})
+	})
+
 	// Form layout
 	form := container.NewVBox(
 		widget.NewLabel("Organization:"),
@@ -185,7 +210,7 @@ This is your first time running Janus. Let's configure some basic settings to ge
 
 	// Main layout with scrollable content
 	return container.NewBorder(nil, buttons, nil, nil,
-		container.NewScroll(container.NewVBox(welcome, widget.NewSeparator(), form)))
+		container.NewScroll(container.NewVBox(welcome, importBtn, widget.NewSeparator(), form)))
 }
 
 func (sw *SetupWizard) saveConfiguration(org, dir, nonmemPath, nonmemBinary, scheduler, executionMode, slurmMode, slurmSocket, slurmAPIVersion, slurmTimeout string) {
@@ -335,9 +360,9 @@ validation:
   oq: "%s"
 
 # Additional Settings (for future use)
-# audit:
+# runlog:
 #   backend: "filesystem"
-#   path: "~/.config/janus/audit"
+#   path: "~/.config/janus/runlog"
 #
 # projects:
 #   default-template: "standard"

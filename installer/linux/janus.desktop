@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Janus
+GenericName=Pharmacometric Modeling Interface
+Comment=Execute and track NONMEM models
+Exec=/usr/bin/janus %F
+Icon=janus
+Terminal=false
+Categories=Science;Education;DataVisualization;
+MimeType=text/x-nonmem-model;text/x-nonmem-control;
+Keywords=pharmacometrics;NONMEM;modeling;PK;PD;
+StartupNotify=true
+StartupWMClass=Janus

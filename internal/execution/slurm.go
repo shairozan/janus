@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/audit"
 	"github.com/pharmalytica/janus/internal/config"
+	"github.com/pharmalytica/janus/internal/runlog"
 	"github.com/pharmalytica/janus/internal/slurm"
 )
 
@@ -32,13 +32,13 @@ type FileStreamData struct {
 
 // SLURMExecutor implements the Executor interface for SLURM-based execution.
 type SLURMExecutor struct {
-	client      slurm.Client
-	config      *config.Config
-	auditLogger *audit.Logger
+	client    slurm.Client
+	config    *config.Config
+	runLogger *runlog.RunLogger
 }
 
 // NewSLURMExecutor creates a new SLURM executor with the provided configuration.
-func NewSLURMExecutor(cfg *config.Config, auditLogger *audit.Logger) (*SLURMExecutor, error) {
+func NewSLURMExecutor(cfg *config.Config, runLogger *runlog.RunLogger) (*SLURMExecutor, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
@@ -50,9 +50,9 @@ func NewSLURMExecutor(cfg *config.Config, auditLogger *audit.Logger) (*SLURMExec
 	}
 
 	return &SLURMExecutor{
-		client:      client,
-		config:      cfg,
-		auditLogger: auditLogger,
+		client:    client,
+		config:    cfg,
+		runLogger: runLogger,
 	}, nil
 }
 
@@ -66,7 +66,7 @@ type jobCompletionResult struct {
 func (e *SLURMExecutor) Execute(ctx context.Context, modelPath string, isParallel bool, cores int, isGrid bool, additionalOptions []string) (*ExecutionResult, error) {
 	startTime := time.Now()
 
-	// Generate unique job ID for audit trail
+	// Generate unique job ID for run log
 	jobID := generateJobID()
 
 	// Build job script for NONMEM execution
@@ -103,7 +103,7 @@ func (e *SLURMExecutor) Execute(ctx context.Context, modelPath string, isParalle
 func (e *SLURMExecutor) ExecuteWithStreaming(ctx context.Context, modelPath string, isParallel bool, cores int, isGrid bool, additionalOptions []string) (*StreamingOutput, *ExecutionResult, error) {
 	startTime := time.Now()
 
-	// Generate unique job ID for audit trail
+	// Generate unique job ID for run log
 	jobID := generateJobID()
 
 	// Create streaming output channels
@@ -422,8 +422,8 @@ func (e *SLURMExecutor) streamJobStatusToChannels(ctx context.Context, jobID str
 // It is responsible for:
 // 1. Monitoring job status until completion
 // 2. Collecting stdout/stderr files
-// 3. Collecting NONMEM output files (via audit.EmbedOutputFiles)
-// 4. Writing audit log
+// 3. Collecting NONMEM output files (via run log.EmbedOutputFiles)
+// 4. Writing run log
 // 5. Sending result back to caller.
 func (e *SLURMExecutor) monitorJobLifecycle(ctx context.Context, jobID, slurmJobID, modelPath string, submitOptions slurm.SubmitOptions, startTime time.Time, resultChan chan<- jobCompletionResult) {
 	log.Printf("Job lifecycle monitor started for SLURM job %s", slurmJobID)
@@ -467,10 +467,10 @@ func (e *SLURMExecutor) monitorJobLifecycle(ctx context.Context, jobID, slurmJob
 		Stderr:   stderr,
 	}
 
-	// Step 3 & 4: Write audit log (which will also collect NONMEM output files)
-	if e.auditLogger != nil && e.auditLogger.IsEnabled() {
+	// Step 3 & 4: Write run log (which will also collect NONMEM output files)
+	if e.runLogger != nil && e.runLogger.IsEnabled() {
 		outputFiles := []string{submitOptions.OutputFile, submitOptions.ErrorFile}
-		auditErr := e.auditLogger.LogSLURMExecution(
+		runLogErr := e.runLogger.RecordSLURMExecution(
 			jobID,
 			"slurm-nonmem",
 			[]string{modelPath},
@@ -482,8 +482,8 @@ func (e *SLURMExecutor) monitorJobLifecycle(ctx context.Context, jobID, slurmJob
 			slurmJobID,
 			outputFiles,
 		)
-		if auditErr != nil {
-			log.Printf("Warning: Failed to log execution to audit trail: %v", auditErr)
+		if runLogErr != nil {
+			log.Printf("Warning: Failed to log execution to run log: %v", runLogErr)
 		} else {
 			log.Printf("Audit log written for job %s", slurmJobID)
 		}
@@ -576,10 +576,10 @@ func (e *SLURMExecutor) monitorJobLifecycleWithStreaming(ctx context.Context, jo
 	// Signal streaming completion
 	streamingOutput.Done <- true
 
-	// Step 3 & 4: Write audit log
-	if e.auditLogger != nil && e.auditLogger.IsEnabled() {
+	// Step 3 & 4: Write run log
+	if e.runLogger != nil && e.runLogger.IsEnabled() {
 		outputFiles := []string{submitOptions.OutputFile, submitOptions.ErrorFile}
-		auditErr := e.auditLogger.LogSLURMExecution(
+		runLogErr := e.runLogger.RecordSLURMExecution(
 			jobID,
 			"slurm-nonmem",
 			[]string{modelPath},
@@ -591,8 +591,8 @@ func (e *SLURMExecutor) monitorJobLifecycleWithStreaming(ctx context.Context, jo
 			slurmJobID,
 			outputFiles,
 		)
-		if auditErr != nil {
-			log.Printf("Warning: Failed to log execution to audit trail: %v", auditErr)
+		if runLogErr != nil {
+			log.Printf("Warning: Failed to log execution to run log: %v", runLogErr)
 		} else {
 			log.Printf("Audit log written for job %s", slurmJobID)
 		}
@@ -606,7 +606,7 @@ func (e *SLURMExecutor) monitorJobLifecycleWithStreaming(ctx context.Context, jo
 	}
 }
 
-// generateJobID generates a unique job ID for audit trail purposes.
+// generateJobID generates a unique job ID for run log purposes.
 func generateJobID() string {
 	bytes := make([]byte, 8)
 	if _, err := rand.Read(bytes); err != nil {

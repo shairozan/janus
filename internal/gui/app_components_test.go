@@ -16,8 +16,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/audit"
 	"github.com/pharmalytica/janus/internal/config"
+	"github.com/pharmalytica/janus/internal/runlog"
 )
 
 func createTestApp() *App {
@@ -116,17 +116,15 @@ func TestRunDetailsTab(t *testing.T) {
 		app := createTestApp()
 		defer app.Cleanup()
 
-		// Create some mock run history
-		app.runHistory = &audit.RunHistory{
-			Runs: []audit.RunRecord{
-				{
-					ID:        1,
-					Timestamp: time.Now(),
-					ModelFile: "test_model.ctl",
-					Command:   "nmfe test_model.ctl test_model.lst",
-					ExitCode:  0,
-					Status:    "completed",
-				},
+		// Create some mock run history using cached runs
+		app.cachedRuns = []runlog.RunRecord{
+			{
+				ID:        "test-uuid-001",
+				Timestamp: time.Now(),
+				ModelFile: "test_model.ctl",
+				Command:   "nmfe test_model.ctl test_model.lst",
+				ExitCode:  0,
+				Status:    "completed",
 			},
 		}
 
@@ -147,21 +145,19 @@ func TestActiveRunsTable(t *testing.T) {
 		app := createTestApp()
 		defer app.Cleanup()
 
-		// Add some mock active runs
-		app.runHistory = &audit.RunHistory{
-			Runs: []audit.RunRecord{
-				{
-					ID:        1,
-					Timestamp: time.Now(),
-					ModelFile: "running_model.ctl",
-					Status:    "running",
-				},
-				{
-					ID:        2,
-					Timestamp: time.Now().Add(-5 * time.Minute),
-					ModelFile: "completed_model.ctl",
-					Status:    "completed",
-				},
+		// Add some mock active runs using cached runs
+		app.cachedRuns = []runlog.RunRecord{
+			{
+				ID:        "test-uuid-001",
+				Timestamp: time.Now(),
+				ModelFile: "running_model.ctl",
+				Status:    "running",
+			},
+			{
+				ID:        "test-uuid-002",
+				Timestamp: time.Now().Add(-5 * time.Minute),
+				ModelFile: "completed_model.ctl",
+				Status:    "completed",
 			},
 		}
 
@@ -182,7 +178,6 @@ func TestActiveRunsTable(t *testing.T) {
 		assert.True(t, foundTable, "Active runs should contain a table widget")
 	})
 }
-
 
 func TestAppConfiguration(t *testing.T) {
 	test.NewApp()
@@ -213,8 +208,8 @@ func TestAppCleanup(t *testing.T) {
 		app := createTestApp()
 
 		// Add some mock resources to cleanup
-		app.activeRuns = map[int]context.CancelFunc{
-			1: func() {}, // Mock cancel function
+		app.activeRuns = map[string]context.CancelFunc{
+			"test-uuid-001": func() {}, // Mock cancel function
 		}
 
 		// Cleanup should not panic
@@ -234,6 +229,11 @@ func TestRunRecordCreation(t *testing.T) {
 		app := createTestApp()
 		defer app.Cleanup()
 
+		// A run log store is created when a model is loaded; the store owns UUID
+		// and timestamp assignment via AddRun. Back it with a temp dir so this test
+		// exercises that real path instead of leaving the store nil.
+		app.runLogStore = runlog.NewRunLogStore(t.TempDir(), "model.mod")
+
 		// Create a run record
 		isGrid := false
 		isParallel := true
@@ -244,7 +244,7 @@ func TestRunRecordCreation(t *testing.T) {
 		record := app.createRunRecord(isGrid, isParallel, cores, &description, &nonmemOptions)
 
 		require.NotNil(t, record)
-		assert.Greater(t, record.ID, 0)
+		assert.NotEmpty(t, record.ID, "Record ID should be a non-empty UUID string")
 		assert.Equal(t, isGrid, record.IsGrid)
 		assert.Equal(t, isParallel, record.IsParallel)
 		assert.Equal(t, cores, record.Cores)
@@ -288,13 +288,13 @@ func TestModelFileLoading(t *testing.T) {
 
 		// Create app without fully initializing UI
 		appInstance := &App{
-			fyneApp:      fyneApp,
-			window:       fyneApp.NewWindow("Test"),
-			runHistory:   &audit.RunHistory{Runs: []audit.RunRecord{}},
-			activeRuns:   make(map[int]context.CancelFunc),
-			errorCh:      make(chan error, 100),
-			errorCtx:     ctx,
-			errorCancel:  func() {},
+			fyneApp:     fyneApp,
+			window:      fyneApp.NewWindow("Test"),
+			cachedRuns:  []runlog.RunRecord{},
+			activeRuns:  make(map[string]context.CancelFunc),
+			errorCh:     make(chan error, 100),
+			errorCtx:    ctx,
+			errorCancel: func() {},
 			// Leave modelEntry and textEditor nil to simulate UI not ready
 		}
 
@@ -319,8 +319,8 @@ func TestNonmemCommandGeneration(t *testing.T) {
 		tests := []struct {
 			name              string
 			isParallel        bool
-			cores            int
-			isGrid           bool
+			cores             int
+			isGrid            bool
 			additionalOptions []string
 			expectedContains  []string
 		}{
@@ -359,4 +359,92 @@ func TestNonmemCommandGeneration(t *testing.T) {
 			})
 		}
 	})
+}
+
+// TestSettingsBuildFormNoPanic guards against the axis-select handlers firing
+// during buildForm's SetSelected calls (before later widgets exist). A Hermes
+// destination is the worst case: the command preview reads hermesImageEntry,
+// which is constructed after the orchestrator select.
+func TestSettingsBuildFormNoPanic(t *testing.T) {
+	test.NewApp()
+
+	for _, dest := range []string{config.DestinationHere, config.DestinationScheduler, config.DestinationHermes} {
+		app := createTestApp()
+		app.config.Engine = config.EngineNONMEM
+		app.config.Destination = dest
+		app.config.Orchestrator = config.OrchestratorDocker
+
+		dialog := NewSettingsDialog(app)
+
+		// buildForm must not panic for any destination.
+		assert.NotNil(t, dialog.buildForm(), "buildForm(%s) should return content", dest)
+	}
+}
+
+func TestRefreshCommandPreview(t *testing.T) {
+	test.NewApp()
+
+	app := createTestApp()
+	app.commandPreview = widget.NewLabel("")
+	app.targetRadio = widget.NewRadioGroup([]string{"Here", "Scheduler"}, nil)
+	app.targetRadio.SetSelected("Here")
+	app.syncRadio = widget.NewRadioGroup([]string{"Synchronous", "Parallel"}, nil)
+	app.syncRadio.SetSelected("Synchronous")
+	app.coresEntry = widget.NewEntry()
+	app.coresEntry.SetText("4")
+	app.nonmemOptionsEntry = widget.NewEntry()
+
+	// No model loaded → placeholder, not a command.
+	app.currentFilePath = ""
+	app.refreshCommandPreview()
+	assert.Contains(t, app.commandPreview.Text, "load a model")
+
+	// Model loaded → preview reflects the binary and the model.
+	app.currentFilePath = "/tmp/run1.ctl"
+	app.refreshCommandPreview()
+	assert.Contains(t, app.commandPreview.Text, "nmfe")
+	assert.Contains(t, app.commandPreview.Text, "run1.ctl")
+
+	// Additional options flow into the preview.
+	app.nonmemOptionsEntry.SetText("-maxeval=9999")
+	app.refreshCommandPreview()
+	assert.Contains(t, app.commandPreview.Text, "-maxeval=9999")
+
+	// Parallel mode adds the parafile to the preview.
+	app.syncRadio.SetSelected("Parallel")
+	app.refreshCommandPreview()
+	assert.Contains(t, app.commandPreview.Text, "-parafile")
+}
+
+func TestRefreshCommandPreviewPSNFunction(t *testing.T) {
+	test.NewApp()
+
+	app := createTestApp()
+	app.config.ExecutionMode = config.ExecutionModePSN
+	app.currentFilePath = "/tmp/run1.mod"
+
+	app.commandPreview = widget.NewLabel("")
+	app.targetRadio = widget.NewRadioGroup([]string{"Here", "Scheduler"}, nil)
+	app.targetRadio.SetSelected("Here")
+	app.syncRadio = widget.NewRadioGroup([]string{"Synchronous", "Parallel"}, nil)
+	app.syncRadio.SetSelected("Synchronous")
+	app.coresEntry = widget.NewEntry()
+	app.coresEntry.SetText("4")
+	app.nonmemOptionsEntry = widget.NewEntry()
+	app.psnForm = newPSNFunctionForm()
+	app.psnPresetSelect = widget.NewSelect([]string{psnDefaultPreset, "vpc", "bootstrap", "scm"}, nil)
+
+	// Default analysis → plain execute.
+	app.psnPresetSelect.SetSelected(psnDefaultPreset)
+	app.refreshCommandPreview()
+	assert.Contains(t, app.commandPreview.Text, "execute")
+	assert.Contains(t, app.commandPreview.Text, "run1.mod")
+
+	// vpc with a typed sample count → the preview shows the vpc tool and the arg.
+	app.psnPresetSelect.SetSelected("vpc")
+	app.psnForm.vpcSamples.SetText("500")
+	app.refreshCommandPreview()
+	assert.Contains(t, app.commandPreview.Text, "vpc")
+	assert.Contains(t, app.commandPreview.Text, "-samples=500")
+	assert.NotContains(t, app.commandPreview.Text, "execute /tmp")
 }

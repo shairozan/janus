@@ -183,9 +183,9 @@ fabricated number.`,
     model: 'opus',
     effort: 'high',
     standing: 'advisory',
-    lens: `Business model, positioning, and the road ahead. Read licensing.md, docs/licensing.md,
-documentation/marketing/, docs/gxp/, and the portal in web/portal/ (the self-service signup and agreements
-flow says something real about the intended motion).
+    lens: `Business model, positioning, and the road ahead. Read licensing.md, documentation/licensing.md,
+documentation/marketing/, documentation/gxp/, and the portal in web/portal/ (the self-service signup and
+agreements flow says something real about the intended motion).
 
 Ask the hard shape-of-the-business questions: is the money in licenses, support, validation packages
 (IQ/OQ documentation is often what sponsors actually pay for), hosting, or something else? Is the open-core
@@ -423,7 +423,7 @@ const GROUNDING = {
 - Ground every claim in something you actually looked at. An assertion with no file path behind it is an opinion, and the council has enough of those.`,
 
   business: `- You are judging Janus as a PRODUCT and a BUSINESS, not as a codebase. Code quality matters here only where it becomes a commercial fact (it ships or it doesn't; it passes audit or it doesn't; one person can maintain it or they can't).
-- Start from what the project says about itself: README.md, licensing.md, docs/licensing.md, documentation/marketing/, docs/gxp/, documentation/features/, CHANGELOG.md, the roadmap and milestones in git history, and the portal in web/portal/. Then judge it.
+- Start from what the project says about itself: README.md, licensing.md, documentation/licensing.md, documentation/marketing/, documentation/gxp/, documentation/features/, documentation/design/, CHANGELOG.md, the roadmap and milestones in git history, and the portal in web/portal/. Then judge it.
 
 ## YOU MUST RESEARCH. This is not optional.
 

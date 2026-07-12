@@ -1,0 +1,14 @@
+Package: janus
+Version: {{VERSION}}
+Section: science
+Priority: optional
+Architecture: amd64
+Maintainer: Pharmalytica <noreply@github.com>
+Description: Pharmacometric modeling GUI
+ Janus is a GUI replacement for Certara Pirana, providing model execution,
+ tracking, and validation for NONMEM and other pharmacometric platforms.
+ .
+ Features include local and remote execution, grid scheduler integration,
+ execution run logs, and self-validating state (IQ/OQ).
+Depends: libc6 (>= 2.31), libgl1, libx11-6, libxcursor1, libxrandr2, libxinerama1, libxi6, libxxf86vm1
+Homepage: https://github.com/pharmalytica/janus

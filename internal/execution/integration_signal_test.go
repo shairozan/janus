@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/audit"
 	"github.com/pharmalytica/janus/internal/config"
+	"github.com/pharmalytica/janus/internal/runlog"
 )
 
 // TestEndToEndSignalHandling verifies the complete signal handling chain:
@@ -25,18 +25,18 @@ func TestEndToEndSignalHandling(t *testing.T) {
 	// Setup test environment
 	testDir := t.TempDir()
 	modelPath := testDir + "/e2e_signal_test.ctl"
-	auditLogPath := testDir + "/audit_e2e.log"
+	runLogPath := testDir + "/runlog_e2e.log"
 
 	err := os.WriteFile(modelPath, []byte("$PROBLEM End-to-End Signal Test\n"), 0644)
 	if err != nil {
 		t.Fatalf("Failed to create test model file: %v", err)
 	}
 
-	auditLogger, err := audit.NewLogger(true, auditLogPath)
+	runLogger, err := runlog.NewRunLogger(true, runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to create audit logger: %v", err)
+		t.Fatalf("Failed to create run logger: %v", err)
 	}
-	defer auditLogger.Close()
+	defer runLogger.Close()
 
 	mockClient := NewMockSLURMClient(testDir)
 	mockClient.SetJobDuration(15 * time.Second) // Long enough to be cancelled
@@ -49,9 +49,9 @@ func TestEndToEndSignalHandling(t *testing.T) {
 	}
 
 	executor := &SLURMExecutor{
-		client:      mockClient,
-		config:      cfg,
-		auditLogger: auditLogger,
+		client:    mockClient,
+		config:    cfg,
+		runLogger: runLogger,
 	}
 
 	// Simulate the complete context chain from main.go
@@ -123,11 +123,11 @@ func TestEndToEndSignalHandling(t *testing.T) {
 // TestGracefulShutdownSequence verifies proper shutdown order
 func TestGracefulShutdownSequence(t *testing.T) {
 	testDir := t.TempDir()
-	auditLogPath := testDir + "/shutdown_audit.log"
+	runLogPath := testDir + "/shutdown_run log.log"
 
-	auditLogger, err := audit.NewLogger(true, auditLogPath)
+	runLogger, err := runlog.NewRunLogger(true, runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to create audit logger: %v", err)
+		t.Fatalf("Failed to create run logger: %v", err)
 	}
 
 	// Test the shutdown sequence
@@ -141,7 +141,7 @@ func TestGracefulShutdownSequence(t *testing.T) {
 	defer appCancel()
 
 	// 3. Various app components that should shutdown gracefully
-	components := []string{"file_watcher", "error_handler", "execution_monitor", "audit_logger"}
+	components := []string{"file_watcher", "error_handler", "execution_monitor", "runlog_logger"}
 
 	// Start mock components
 	for _, component := range components {
@@ -172,8 +172,8 @@ func TestGracefulShutdownSequence(t *testing.T) {
 		}
 	}
 
-	// Close audit logger last (like real app does)
-	auditLogger.Close()
+	// Close run logger last (like real app does)
+	runLogger.Close()
 	t.Log("✅ Graceful shutdown sequence completed")
 }
 

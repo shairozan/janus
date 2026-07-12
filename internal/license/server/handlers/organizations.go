@@ -7,22 +7,23 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/license/models"
 	"gorm.io/gorm"
+
+	"github.com/pharmalytica/janus/internal/license/models"
 )
 
-// CreateOrganizationRequest represents the request to create an organization
+// CreateOrganizationRequest represents the request to create an organization.
 type CreateOrganizationRequest struct {
 	Name       string `json:"name" validate:"required"`
 	CustomerID string `json:"customer_id" validate:"required"`
 }
 
-// UpdateOrganizationRequest represents the request to update an organization
+// UpdateOrganizationRequest represents the request to update an organization.
 type UpdateOrganizationRequest struct {
 	Name *string `json:"name,omitempty"`
 }
 
-// OrganizationResponse represents the response for organization operations
+// OrganizationResponse represents the response for organization operations.
 type OrganizationResponse struct {
 	ID            int64      `json:"id"`
 	Name          string     `json:"name"`
@@ -41,11 +42,10 @@ func organizationToResponse(org *models.Organization) OrganizationResponse {
 	}
 }
 
-// CreateOrganization creates a new organization
+// CreateOrganization creates a new organization.
 func CreateOrganization(db *gorm.DB, logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req CreateOrganizationRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -78,11 +78,10 @@ func CreateOrganization(db *gorm.DB, logger *log.Logger,
 	}
 }
 
-// GetOrganization retrieves an organization by ID
+// GetOrganization retrieves an organization by ID.
 func GetOrganization(db *gorm.DB, logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.URL.Query().Get("id")
 		if idStr == "" {
@@ -110,11 +109,10 @@ func GetOrganization(db *gorm.DB, logger *log.Logger,
 	}
 }
 
-// ListOrganizations retrieves all organizations
+// ListOrganizations retrieves all organizations.
 func ListOrganizations(db *gorm.DB, logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		var orgs []models.Organization
 		if err := db.Where("deactivated_at IS NULL").Order("created_at DESC").Find(&orgs).Error; err != nil {
@@ -133,11 +131,10 @@ func ListOrganizations(db *gorm.DB, logger *log.Logger,
 	}
 }
 
-// UpdateOrganization updates an existing organization
+// UpdateOrganization updates an existing organization.
 func UpdateOrganization(db *gorm.DB, logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.URL.Query().Get("id")
 		if idStr == "" {
@@ -184,11 +181,10 @@ func UpdateOrganization(db *gorm.DB, logger *log.Logger,
 	}
 }
 
-// DeleteOrganization soft-deletes an organization by setting deactivated_at
+// DeleteOrganization soft-deletes an organization by setting deactivated_at.
 func DeleteOrganization(db *gorm.DB, logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.URL.Query().Get("id")
 		if idStr == "" {

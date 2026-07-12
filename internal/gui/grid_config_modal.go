@@ -21,11 +21,11 @@ type GridSettings struct {
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
 	Resources struct {
-		Nodes        int    `json:"nodes"`
-		CPUsPerTask  int    `json:"cpus_per_task"`
-		MemoryGB     int    `json:"memory_gb,omitempty"`
-		TimeLimit    string `json:"time_limit,omitempty"`
-		Partition    string `json:"partition,omitempty"`
+		Nodes       int    `json:"nodes"`
+		CPUsPerTask int    `json:"cpus_per_task"`
+		MemoryGB    int    `json:"memory_gb,omitempty"`
+		TimeLimit   string `json:"time_limit,omitempty"`
+		Partition   string `json:"partition,omitempty"`
 	} `json:"resources"`
 	NONMEM struct {
 		Parallel          bool     `json:"parallel"`
@@ -39,9 +39,9 @@ type GridSettings struct {
 
 // GridConfigResult represents the result of the grid configuration modal.
 type GridConfigResult struct {
-	Settings    *GridSettings
+	Settings       *GridSettings
 	SaveAsTemplate bool
-	Cancelled   bool
+	Cancelled      bool
 }
 
 // ShowGridConfigModal displays the grid scheduler configuration modal.
@@ -158,9 +158,9 @@ func (a *App) ShowGridConfigModal(callback func(*GridConfigResult)) {
 	// Main layout using border layout for better space utilization
 	content := container.NewBorder(
 		container.NewVBox(headerLabel, widget.NewSeparator()), // Top: header
-		buttonBox, // Bottom: save checkbox and buttons
-		nil, // Left
-		nil, // Right
+		buttonBox,  // Bottom: save checkbox and buttons
+		nil,        // Left
+		nil,        // Right
 		scrollArea, // Center: takes all remaining space
 	)
 

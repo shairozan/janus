@@ -7,10 +7,11 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq" // PostgreSQL driver
-	"github.com/pharmalytica/janus/internal/license/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
+	"github.com/pharmalytica/janus/internal/license/models"
 )
 
 // DB wraps gorm.DB for database operations.
@@ -72,9 +73,10 @@ func Connect(databaseURL string, autoMigrate bool) (*DB, error) {
 		DB: gormDB,
 	}, nil
 }
+
 // Legacy methods for backward compatibility - will be removed after full refactor
 
-// GetActiveSigningKey retrieves the active signing key for an organization (or master key if orgID is nil)
+// GetActiveSigningKey retrieves the active signing key for an organization (or master key if orgID is nil).
 func (db *DB) GetActiveSigningKey(orgID *int64) (*models.SigningKey, error) {
 	var key models.SigningKey
 	query := db.DB.Where("revoked_at IS NULL AND expires_at > ?", time.Now())
@@ -92,12 +94,12 @@ func (db *DB) GetActiveSigningKey(orgID *int64) (*models.SigningKey, error) {
 	return &key, nil
 }
 
-// CreateSigningKey creates a new signing key
+// CreateSigningKey creates a new signing key.
 func (db *DB) CreateSigningKey(key *models.SigningKey) error {
 	return db.DB.Create(key).Error
 }
 
-// GetSigningKeyByID retrieves a signing key by its key_id
+// GetSigningKeyByID retrieves a signing key by its key_id.
 func (db *DB) GetSigningKeyByID(keyID string) (*models.SigningKey, error) {
 	var key models.SigningKey
 	if err := db.DB.Where("key_id = ?", keyID).First(&key).Error; err != nil {
@@ -107,14 +109,14 @@ func (db *DB) GetSigningKeyByID(keyID string) (*models.SigningKey, error) {
 	return &key, nil
 }
 
-// RevokeSigningKey revokes a signing key by setting revoked_at
+// RevokeSigningKey revokes a signing key by setting revoked_at.
 func (db *DB) RevokeSigningKey(keyID string) error {
 	now := time.Now()
 
 	return db.DB.Model(&models.SigningKey{}).Where("key_id = ?", keyID).Update("revoked_at", now).Error
 }
 
-// RotateSigningKey creates a new key and revokes the old one in a transaction
+// RotateSigningKey creates a new key and revokes the old one in a transaction.
 func (db *DB) RotateSigningKey(newKey *models.SigningKey, oldKeyID string) error {
 	return db.DB.Transaction(func(tx *gorm.DB) error {
 		// Create new key

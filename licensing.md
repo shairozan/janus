@@ -16,7 +16,7 @@ Janus operates under a commercial licensing model designed to provide sustainabl
 - Full access to all Janus functionality
 - NONMEM grid management across SLURM/SGE/TORQUE
 - CFR 21 Part 11 compliance features
-- Project management and audit trails
+- Project management and run logs
 - Priority support and updates
 
 **Install Limitations**:
@@ -40,32 +40,12 @@ Janus operates under a commercial licensing model designed to provide sustainabl
 
 ## Partnership Models
 
-### Metworx Integration Partnership
+Platform partnerships — where a modeling platform bundles Janus for its own users and is billed per
+active user rather than the end user being billed directly — are a possible future channel. No such
+partnership is in place, and none is assumed by the pricing or projections in this document.
 
-**Structure**: Revenue-sharing model with Metrum Research Group
-
-**User Experience**:
-- Metworx platform users receive complimentary Janus access
-- Seamless integration with existing Metworx workflows
-- No direct billing to end users
-
-**Business Model**:
-- Metrum pays $5 USD per unique active user per month
-- Active user defined as: user who submits jobs or accesses Janus within a 30-day period
-- Monthly reconciliation based on usage analytics
-- Minimum commitment terms negotiable
-
-**Benefits for Metrum**:
-- Enhanced platform value proposition
-- Reduced development overhead for grid management features
-- Maintained control over user experience
-- Competitive differentiation in the market
-
-**Benefits for Janus**:
-- Guaranteed revenue stream
-- Market penetration in pharmaceutical sector
-- Reduced customer acquisition costs
-- Strategic partnership validation
+The licensing architecture below supports that motion if it is ever pursued (see *Partner-Issued
+Licensing*), but the primary motion is direct.
 
 ## Technical Implementation
 
@@ -126,27 +106,30 @@ Janus operates under a commercial licensing model designed to provide sustainabl
 - Administrative license file distribution for organizations
 - License renewal via file replacement (no connectivity required)
 
-### Partnership Integration
+### Partner-Issued Licensing
 
-**Metworx Secure Licensing Flow**:
-- Customer authenticates via existing Metworx/Cognito infrastructure
-- Metworx validates customer legitimacy and generates signed license request
-- Janus licensing service validates Metworx signature and issues license file
-- License file works offline and can be transferred to airgapped environments
+An optional flow for organizations that already run an identity provider Janus can trust — a platform
+partner, or an enterprise customer's own IdP. Not tied to any specific partner.
+
+**Flow**:
+- Customer authenticates against the trusted provider's existing identity infrastructure
+- The provider validates the customer and generates a signed license request
+- The Janus licensing service validates that signature and issues a license file
+- The license file works offline and can be transferred to airgapped environments
 - Cryptographic signatures prevent tampering and unauthorized use
 
 **Technical Flow**:
-1. **Authentication**: Customer logs into Metworx portal using existing Cognito pool
-2. **License Request**: Metworx generates cryptographically signed license request
-3. **Validation**: Janus licensing service validates Metworx signature using pre-shared public keys
-4. **License Generation**: Upon validation, Janus issues encrypted license file
-5. **Distribution**: License file downloaded by customer for local installation
-6. **Verification**: Janus validates license file signature and expiration locally
+1. **Authentication**: Customer logs into the trusted provider using its existing identity pool
+2. **License Request**: The provider generates a cryptographically signed license request
+3. **Validation**: The Janus licensing service validates the signature using pre-shared public keys
+4. **License Generation**: Upon validation, Janus issues an encrypted license file
+5. **Distribution**: The license file is downloaded by the customer for local installation
+6. **Verification**: Janus validates the license file signature and expiration locally
 
 **Security Model**:
 - Pre-established trust relationship via public key exchange
-- Metworx signs license requests with their private key
-- Janus validates requests using Metworx public key
+- The provider signs license requests with its private key
+- Janus validates requests using the provider's public key
 - Issued license files are encrypted and digitally signed by Janus
 - No real-time connectivity required after license generation
 
@@ -237,10 +220,7 @@ Janus operates under a commercial licensing model designed to provide sustainabl
 
 ### Partnership Revenue
 
-**Metworx Integration** (Estimated):
-- 200 active users × $5/month = $12,000 monthly revenue
-- Potential for 1000+ users as platform scales
-- Additional partnership opportunities with similar platforms
+None projected. Platform partnerships are a possible future channel, not a modeled revenue line.
 
 ## Implementation Timeline
 
@@ -250,11 +230,10 @@ Janus operates under a commercial licensing model designed to provide sustainabl
 - Basic telemetry and usage tracking
 - Standard commercial license launch
 
-### Phase 2: Partnership Integration (Months 4-6)
-- Metworx SSO integration development
-- Partner billing and analytics systems
-- Usage-based billing implementation
-- Partnership agreement finalization
+### Phase 2: Enterprise Identity (Months 4-6)
+- Partner/enterprise IdP integration (see Partner-Issued Licensing)
+- Org-level entitlement and billing systems
+- Usage reporting for org-level licenses
 
 ### Phase 3: Enterprise Features (Months 7-12)
 - On-premises license server option

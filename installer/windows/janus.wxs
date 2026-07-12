@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <?include variables.wxi ?>
+
+  <Package Name="Janus"
+           Manufacturer="Pharmalytica"
+           Version="$(var.Version)"
+           UpgradeCode="8B7C5E3F-9A2D-4F1B-B8C6-3E7A9D2F5C8B"
+           Language="1033"
+           InstallerVersion="200"
+           Compressed="yes"
+           Scope="perUser">
+
+    <!-- Major upgrade strategy -->
+    <MajorUpgrade
+      DowngradeErrorMessage="A newer version of Janus is already installed. Please uninstall it before installing this version."
+      Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Icon reference -->
+    <Icon Id="JanusIcon" SourceFile="$(var.IconPath)\janus.ico" />
+
+    <!-- UI configuration -->
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicensePath)\LICENSE.rtf" />
+    <ui:WixUI Id="WixUI_InstallDir" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+
+    <!-- Installation directory structure -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="INSTALLFOLDER" Name="Janus">
+
+        <!-- Main executable component -->
+        <Component Id="JanusExecutable" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890">
+          <File Id="JanusExe"
+                Source="$(var.BinaryPath)\janus.exe"
+                KeyPath="yes"
+                Checksum="yes" />
+
+          <!-- Add to user PATH -->
+          <Environment Id="PATH"
+                       Name="PATH"
+                       Value="[INSTALLFOLDER]"
+                       Permanent="no"
+                       Part="last"
+                       Action="set"
+                       System="no" />
+
+          <!-- Registry key for installation path tracking -->
+          <RegistryKey Root="HKCU" Key="SOFTWARE\Pharmalytica\Janus">
+            <RegistryValue Name="InstallPath" Type="string" Value="[INSTALLFOLDER]" />
+            <RegistryValue Name="Version" Type="string" Value="$(var.Version)" />
+          </RegistryKey>
+        </Component>
+
+        <!-- Application icon file -->
+        <Component Id="JanusIconFile" Guid="B2C3D4E5-F6A7-8901-BCDE-F12345678901">
+          <File Id="JanusIco"
+                Source="$(var.IconPath)\janus.ico"
+                KeyPath="yes" />
+        </Component>
+
+        <!-- Executor binary -->
+        <Component Id="ExecutorBinary" Guid="E5F6A7B8-C9D0-1234-EFAB-345678901234">
+          <File Id="ExecutorExe"
+                Source="$(var.BinaryPath)\executor.exe"
+                KeyPath="yes"
+                Checksum="yes" />
+        </Component>
+
+        <!-- Launcher batch file -->
+        <Component Id="LauncherBatch" Guid="A8B9C0D1-E2F3-5678-CDEF-789012345678">
+          <File Id="LauncherBat"
+                Source="janus-launcher.bat"
+                KeyPath="yes" />
+        </Component>
+
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Start Menu shortcuts -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Janus">
+        <Component Id="StartMenuShortcut" Guid="C3D4E5F6-A7B8-9012-CDEF-123456789012">
+          <Shortcut Id="ApplicationStartMenuShortcut"
+                    Name="Janus"
+                    Description="Pharmacometric Modeling Interface"
+                    Target="[INSTALLFOLDER]janus-launcher.bat"
+                    WorkingDirectory="INSTALLFOLDER"
+                    Advertise="no"
+                    Icon="JanusIcon" />
+          <RemoveFolder Id="CleanupStartMenu" On="uninstall" />
+          <RegistryValue Root="HKCU"
+                        Key="Software\Pharmalytica\Janus"
+                        Name="StartMenuShortcut"
+                        Type="integer"
+                        Value="1"
+                        KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- File associations for .mod files -->
+    <Component Id="FileAssocMod" Directory="INSTALLFOLDER" Guid="D4E5F6A7-B8C9-0123-DEFA-234567890123">
+      <ProgId Id="JanusModelFile.mod" Description="NONMEM Model File (.mod)" Icon="JanusIco">
+        <Extension Id="mod" ContentType="text/plain">
+          <Verb Id="open" Command="Open with Janus" TargetFile="LauncherBat" Argument='"%1"' />
+        </Extension>
+      </ProgId>
+      <RegistryValue Root="HKCU"
+                     Key="Software\Pharmalytica\Janus"
+                     Name="FileAssoc_mod"
+                     Type="integer"
+                     Value="1"
+                     KeyPath="yes" />
+    </Component>
+
+    <!-- File associations for .ctl files -->
+    <Component Id="FileAssocCtl" Directory="INSTALLFOLDER" Guid="E5F6A7B8-C9D0-2345-EF12-456789ABCDEF">
+      <ProgId Id="JanusModelFile.ctl" Description="NONMEM Control File (.ctl)" Icon="JanusIco">
+        <Extension Id="ctl" ContentType="text/plain">
+          <Verb Id="open" Command="Open with Janus" TargetFile="LauncherBat" Argument='"%1"' />
+        </Extension>
+      </ProgId>
+      <RegistryValue Root="HKCU"
+                     Key="Software\Pharmalytica\Janus"
+                     Name="FileAssoc_ctl"
+                     Type="integer"
+                     Value="1"
+                     KeyPath="yes" />
+    </Component>
+
+    <!-- File associations for .nmctl files -->
+    <Component Id="FileAssocNmctl" Directory="INSTALLFOLDER" Guid="F6A7B8C9-D0E1-3456-AB34-567890FEDCBA">
+      <ProgId Id="JanusModelFile.nmctl" Description="NONMEM Control File (.nmctl)" Icon="JanusIco">
+        <Extension Id="nmctl" ContentType="text/plain">
+          <Verb Id="open" Command="Open with Janus" TargetFile="LauncherBat" Argument='"%1"' />
+        </Extension>
+      </ProgId>
+      <RegistryValue Root="HKCU"
+                     Key="Software\Pharmalytica\Janus"
+                     Name="FileAssoc_nmctl"
+                     Type="integer"
+                     Value="1"
+                     KeyPath="yes" />
+    </Component>
+
+    <!-- Feature definition -->
+    <Feature Id="ProductFeature" Title="Janus" Level="1" ConfigurableDirectory="INSTALLFOLDER">
+      <ComponentRef Id="JanusExecutable" />
+      <ComponentRef Id="ExecutorBinary" />
+      <ComponentRef Id="JanusIconFile" />
+      <ComponentRef Id="LauncherBatch" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="FileAssocMod" />
+      <ComponentRef Id="FileAssocCtl" />
+      <ComponentRef Id="FileAssocNmctl" />
+    </Feature>
+
+  </Package>
+</Wix>

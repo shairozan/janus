@@ -19,15 +19,15 @@ import (
 
 // SLURMMonitor manages SLURM job monitoring and UI updates.
 type SLURMMonitor struct {
-	client       slurm.Client
-	jobs         []SLURMJobInfo
-	jobsMutex    sync.RWMutex
-	updateChan   chan struct{}
-	ctx          context.Context //nolint:containedctx // Long-lived monitoring context
-	cancel       context.CancelFunc
-	isRunning    bool
-	runningMutex sync.RWMutex
-	connected    bool
+	client         slurm.Client
+	jobs           []SLURMJobInfo
+	jobsMutex      sync.RWMutex
+	updateChan     chan struct{}
+	ctx            context.Context //nolint:containedctx // Long-lived monitoring context
+	cancel         context.CancelFunc
+	isRunning      bool
+	runningMutex   sync.RWMutex
+	connected      bool
 	connectedMutex sync.RWMutex
 }
 
@@ -40,6 +40,19 @@ type SLURMJobInfo struct {
 	Partition string
 	Nodes     string
 	CPUs      string
+}
+
+// IsSLURMAvailable checks if SLURM tools are available on the system.
+// This performs a quick check by attempting to run squeue with a short timeout.
+// Returns true if squeue command succeeds, false otherwise.
+func IsSLURMAvailable() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "squeue", "--version")
+	err := cmd.Run()
+
+	return err == nil
 }
 
 // NewSLURMMonitor creates a new SLURM monitor.
@@ -554,10 +567,10 @@ func (a *App) BuildSLURMJobsTab() fyne.CanvasObject {
 	// Use border container to maximize table space
 	return container.NewBorder(
 		container.NewVBox(controls, headerTable), // Top
-		nil, // Bottom
-		nil, // Left
-		nil, // Right
-		table, // Center - takes up all remaining space
+		nil,                                      // Bottom
+		nil,                                      // Left
+		nil,                                      // Right
+		table,                                    // Center - takes up all remaining space
 	)
 }
 
@@ -574,6 +587,11 @@ func (a *App) setupSLURMMonitoring() {
 
 	// Only set up SLURM monitoring if scheduler is SLURM
 	if a.config.Scheduler != "SLURM" {
+		return
+	}
+
+	// Only set up monitoring if SLURM is actually available
+	if !IsSLURMAvailable() {
 		return
 	}
 

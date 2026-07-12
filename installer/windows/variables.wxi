@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Include>
+  <!-- Version is provided via command line -d Version=$Version -->
+  <?define BinaryPath="..\..\dist\windows" ?>
+  <?define IconPath="..\..\assets\icons" ?>
+  <?define LicensePath="..\..\installer\windows" ?>
+</Include>

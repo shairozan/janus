@@ -1,0 +1,86 @@
+# syntax=docker/dockerfile:1
+#
+# Janus PsN orchestration image — the SETUP/AGGREGATE image for the host-driven
+# Kubernetes bootstrap saga (#192/#195).
+#
+# It is a Hermes image (it serves the gRPC endpoint Janus drives) with PsN and a
+# dummy NONMEM compiler installed. The saga runs its PsN stages here:
+#   * SETUP:     bootstrap … -nm_version=dummy   (resample only — the dummy
+#                compiler exits without fitting, leaving the datasets on disk)
+#   * AGGREGATE: rawresults + bootstrap -summarize   (read-only — computes CIs)
+# Neither stage runs NONMEM, so this image needs NO NONMEM and NO license, and is
+# freely publishable. The actual fits run on your own NONMEM execution image.
+#
+# Build & push to a registry your cluster can pull from:
+#   docker build -f docker/Dockerfile.psn -t <registry>/janus-psn:5.7.1 .
+#   docker push <registry>/janus-psn:5.7.1
+# Then set it in janus.yaml:
+#   hermes:
+#     psn_image: <registry>/janus-psn:5.7.1
+#     kubernetes: { namespace: <ns>, image_pull_secret: <secret> }
+#
+# The PsN install below is the layer validated locally in #193 (docker/psn-spike.sh),
+# rebased onto the Hermes server base.
+
+ARG HERMES_BASE=ghcr.io/pharmalytica/hermes:main-trixie
+FROM ${HERMES_BASE}
+
+# PsN release to install. Must be >= 4.6.0 (older scores crashed runs as 0, not
+# NA). Releases: https://github.com/UUPharmacometrics/PsN/releases
+ARG PSN_VERSION=5.7.1
+
+# The Hermes base runs as the unprivileged "hermes" user; install as root.
+USER root
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# System + Perl tooling PsN needs (cpanminus installs the CPAN modules). Perl is
+# installed explicitly since the base is a minimal Debian.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        perl build-essential cpanminus curl ca-certificates dos2unix \
+        libexpat1-dev procps \
+ && rm -rf /var/lib/apt/lists/*
+
+# PsN's required Perl modules — the exact set checked by setup.pl (@nix_modules);
+# PsN uses Mouse (not Moose) and Math::Random::Free (not Math::Random). setup.pl
+# itself uses File::HomeDir + File::Copy::Recursive at compile time.
+RUN cpanm --notest \
+        Mouse MouseX::Params::Validate \
+        Statistics::Distributions Math::Random::Free Math::SigFigs Math::MatrixReal \
+        File::HomeDir File::Copy::Recursive Capture::Tiny YAML Archive::Zip \
+ && rm -rf /root/.cpanm
+
+# Install PsN non-interactively. setup.pl on Linux-as-root asks, in order: 3
+# install-dir prompts (blank = defaults), then check-modules / install-PsNR /
+# install-pharmpy / install-test-library / help-create-config — we answer n to
+# all five. Answering n to "help create config" skips the interactive NM-version
+# loop and copies the template psn.conf; we then register the dummy compiler.
+# (The bootstrap staged path needs neither R nor pharmpy — validated in #193.)
+RUN curl -fsSL -o /tmp/psn.tar.gz \
+        "https://github.com/UUPharmacometrics/PsN/releases/download/v${PSN_VERSION}/PsN-${PSN_VERSION}.tar.gz" \
+ && mkdir -p /tmp/psn \
+ && tar -xzf /tmp/psn.tar.gz -C /tmp/psn --strip-components=1 \
+ && cd /tmp/psn \
+ && printf '\n\n\nn\nn\nn\nn\nn\n' | perl setup.pl \
+ && PSNCONF="$(find / -name psn.conf -path '*PsN_*' | head -1)" \
+ && test -n "$PSNCONF" \
+ && printf '\n[nm_versions]\ndefault=/opt/NONMEM/dummy,7.5\ndummy=/opt/NONMEM/dummy,7.5\n' >> "$PSNCONF" \
+ && cd / && rm -rf /tmp/psn.tar.gz /tmp/psn
+
+# Dummy NONMEM "installation": its nmfe exits without fitting, so the SETUP stage
+# resamples without running NONMEM. PsN finds nmfe75 under <path>/run/.
+COPY testdata/mock-nonmem/dummy-nonmem.sh /opt/NONMEM/dummy/run/nmfe75
+RUN dos2unix /opt/NONMEM/dummy/run/nmfe75 && chmod +x /opt/NONMEM/dummy/run/nmfe75
+
+# Back to the unprivileged runtime user; the Hermes "serve" entrypoint is
+# inherited from the base image.
+USER hermes
+
+LABEL io.pharmalytica.janus.type="orchestrator" \
+      io.pharmalytica.janus.platform="psn" \
+      io.pharmalytica.janus.display-name="Janus PsN orchestrator" \
+      io.pharmalytica.janus.description="PsN + dummy compiler on Hermes, for the K8s bootstrap saga (no NONMEM/license)" \
+      io.pharmalytica.psn.version="${PSN_VERSION}" \
+      org.opencontainers.image.source="https://github.com/pharmalytica/janus"
+
+# Hermes serves on 50051 (inherited from the base image's default command).
+EXPOSE 50051

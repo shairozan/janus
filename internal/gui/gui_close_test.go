@@ -28,8 +28,8 @@ func TestGUICloseHandling(t *testing.T) {
 	mockCancel1 := func() { t.Log("Mock run 1 cancelled") }
 	mockCancel2 := func() { t.Log("Mock run 2 cancelled") }
 
-	app.activeRuns[1] = mockCancel1
-	app.activeRuns[2] = mockCancel2
+	app.activeRuns["test-uuid-001"] = mockCancel1
+	app.activeRuns["test-uuid-002"] = mockCancel2
 
 	// Track if cleanup was called
 	cleanupCalled := make(chan bool, 1)
@@ -108,7 +108,7 @@ func TestExecutionCancellationEquivalence(t *testing.T) {
 
 		// Add mock execution
 		mockCancel := func() { t.Log("Signal test: execution cancelled") }
-		app.activeRuns[100] = mockCancel
+		app.activeRuns["test-uuid-100"] = mockCancel
 
 		// Simulate signal by cancelling main context
 		cancel()
@@ -125,7 +125,7 @@ func TestExecutionCancellationEquivalence(t *testing.T) {
 
 		// Add mock execution
 		mockCancel := func() { t.Log("GUI close test: execution cancelled") }
-		app.activeRuns[200] = mockCancel
+		app.activeRuns["test-uuid-200"] = mockCancel
 
 		// Simulate GUI close by calling cleanup directly
 		app.Cleanup()
@@ -199,7 +199,7 @@ func TestIntegratedCloseWithExecution(t *testing.T) {
 	defer execCancel()
 
 	// Store the cancel function (like active runs do)
-	app.activeRuns[999] = execCancel
+	app.activeRuns["test-uuid-999"] = execCancel
 
 	// Start mock execution
 	executionDone := make(chan bool, 1)

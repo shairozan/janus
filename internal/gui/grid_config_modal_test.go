@@ -142,9 +142,9 @@ func TestGridConfigDataCollection(t *testing.T) {
 		settings := result.Settings
 
 		// Should use defaults for invalid inputs
-		assert.Equal(t, 1, settings.Resources.Nodes) // Default
+		assert.Equal(t, 1, settings.Resources.Nodes)       // Default
 		assert.Equal(t, 0, settings.Resources.CPUsPerTask) // Invalid input results in 0
-		assert.Equal(t, 0, settings.Resources.MemoryGB) // Invalid input results in 0
+		assert.Equal(t, 0, settings.Resources.MemoryGB)    // Invalid input results in 0
 	})
 
 	t.Run("collect_grid_settings_empty_inputs", func(t *testing.T) {

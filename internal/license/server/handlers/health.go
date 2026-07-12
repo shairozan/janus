@@ -11,10 +11,11 @@ import (
 )
 
 // Health handles GET /health requests.
-func Health(database *db.DB, logger *log.Logger, writeJSON func(http.ResponseWriter, int, interface{}), writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
+func Health(database *db.DB, _ *log.Logger, writeJSON func(http.ResponseWriter, int, interface{}), writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+
 			return
 		}
 

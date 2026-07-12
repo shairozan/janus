@@ -8,9 +8,10 @@ import (
 	"strconv"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/pharmalytica/janus/internal/license/db"
 	"github.com/pharmalytica/janus/internal/license/models"
-	"gorm.io/gorm"
 )
 
 // KeyManager is an interface for managing signing keys.
@@ -20,7 +21,7 @@ type KeyManager interface {
 	RotateKey(newKeyID string, oldKeyID string, orgID *int64, validityPeriod time.Duration) error
 }
 
-// SigningKeyResponse represents a signing key response
+// SigningKeyResponse represents a signing key response.
 type SigningKeyResponse struct {
 	KeyID          string     `json:"key_id"`
 	OrganizationID *int64     `json:"organization_id,omitempty"`
@@ -31,11 +32,10 @@ type SigningKeyResponse struct {
 	RevokedAt      *time.Time `json:"revoked_at,omitempty"`
 }
 
-// ListKeys retrieves all signing keys (optionally filtered by organization)
+// ListKeys retrieves all signing keys (optionally filtered by organization).
 func ListKeys(db *gorm.DB, logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgIDStr := r.URL.Query().Get("organization_id")
 
@@ -76,11 +76,10 @@ func ListKeys(db *gorm.DB, logger *log.Logger,
 	}
 }
 
-// GetPublicKey retrieves a public key by key_id
+// GetPublicKey retrieves a public key by key_id.
 func GetPublicKey(db *gorm.DB, logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		keyID := r.URL.Query().Get("key_id")
 		if keyID == "" {
@@ -116,6 +115,7 @@ func RotateKey(database *db.DB, keyMgr KeyManager, logger *log.Logger, writeJSON
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+
 			return
 		}
 
@@ -124,6 +124,7 @@ func RotateKey(database *db.DB, keyMgr KeyManager, logger *log.Logger, writeJSON
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid request body: %v", err))
+
 			return
 		}
 
@@ -148,6 +149,7 @@ func RotateKey(database *db.DB, keyMgr KeyManager, logger *log.Logger, writeJSON
 		if err := keyMgr.RotateKey(newKeyID, oldKeyID, req.OrganizationID, validityPeriod); err != nil {
 			logger.Printf("Error rotating key: %v", err)
 			writeError(w, http.StatusInternalServerError, "failed to rotate key")
+
 			return
 		}
 
@@ -156,6 +158,7 @@ func RotateKey(database *db.DB, keyMgr KeyManager, logger *log.Logger, writeJSON
 		if err != nil {
 			logger.Printf("Error retrieving new key: %v", err)
 			writeError(w, http.StatusInternalServerError, "failed to retrieve new key")
+
 			return
 		}
 

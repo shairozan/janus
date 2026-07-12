@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+#
+# Integration-test build of the license-server. Unlike docker/license/Dockerfile
+# (used for releases), this does NOT run `go mod download` — that greedily fetches
+# the entire root module graph, including the private `hermes` module, which needs
+# a credentialed token. A scoped `go build ./cmd/license-server` only resolves the
+# license-server's own (public) dependencies, so the integration stack builds from
+# current source with no private-repo access required.
+
+FROM golang:alpine AS builder
+RUN apk add --no-cache git ca-certificates tzdata
+WORKDIR /build
+ENV GOTOOLCHAIN=auto CGO_ENABLED=0 GOOS=linux
+COPY . .
+RUN go build -ldflags='-w -s' -o license-server ./cmd/license-server
+
+FROM scratch
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /build/license-server /license-server
+COPY --from=builder /build/internal/license/db/migrations /migrations
+EXPOSE 8080
+USER 65534:65534
+ENTRYPOINT ["/license-server"]
+CMD ["serve"]

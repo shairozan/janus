@@ -1,0 +1,12 @@
+$PROBLEM Test Model for Unit Tests
+$INPUT ID TIME DV AMT
+$DATA test.csv IGNORE=@
+
+$PRED
+Y = THETA(1) + ETA(1)
+
+$THETA 1
+$OMEGA 0.1
+$SIGMA 0.1
+
+$ESTIMATION METHOD=1

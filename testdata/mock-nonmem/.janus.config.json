@@ -1,0 +1,10 @@
+{
+  "hermes": {
+    "image": "ghcr.io/pharmalytica/nonmem-hermes:760",
+    "resources": {
+      "cpu_cores": 1,
+      "memory": "1Gi"
+    },
+    "container_command_path": "/opt/NONMEM/nm76/run/nmfe76"
+  }
+}

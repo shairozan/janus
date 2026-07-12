@@ -26,6 +26,8 @@ const (
 	CategoryVersionBuild     ValidationCategory = "VERSION_BUILD"
 	CategoryTestFramework    ValidationCategory = "TEST_FRAMEWORK"
 	CategorySLURMIntegration ValidationCategory = "SLURM_INTEGRATION"
+	CategoryHermesExecution  ValidationCategory = "HERMES_EXECUTION"
+	CategoryCLI              ValidationCategory = "CLI"
 )
 
 // ValidationResult represents the result of a validation test.
@@ -185,7 +187,7 @@ func ResetGlobalReporter() {
 	globalReporter.results = nil
 }
 
-// GenerateAuditorReport generates a comprehensive report suitable for regulatory auditors.
+// GenerateAuditorReport generates a comprehensive report suitable for regulatory run logs.
 func (vr *ValidationReporter) GenerateAuditorReport(filename, janusVersion, operator string) error {
 	enhancedReporter := &EnhancedValidationReporter{
 		ValidationReporter: vr,

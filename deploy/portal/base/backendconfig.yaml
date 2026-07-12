@@ -1,0 +1,14 @@
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: portal-backendconfig
+  labels:
+    app.kubernetes.io/name: portal
+spec:
+  # The default GCE Ingress health check probes "/" and expects 200; point the LB
+  # health check at the app's dependency-free health route instead.
+  healthCheck:
+    type: HTTP
+    requestPath: /api/health
+    port: 3000
+  timeoutSec: 30

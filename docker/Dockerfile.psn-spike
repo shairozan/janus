@@ -1,0 +1,86 @@
+# syntax=docker/dockerfile:1
+#
+# Janus K8s bootstrap spike image (issue #193) — PsN + a faked NONMEM.
+#
+# Validates PsN's staged decomposition (resample-only -> external fits ->
+# rawresults -> bootstrap -summarize) locally in Docker, with NO real NONMEM and
+# NO license. See docker/README.psn-spike.md.
+#
+#   Build: docker build -f docker/Dockerfile.psn-spike -t janus-psn-spike:latest .
+#   Run:   docker run --rm janus-psn-spike:latest            # runs the spike tests
+#          docker run --rm -it janus-psn-spike:latest bash   # poke around
+#
+# This image's PsN layer is the basis for the production "PsN orchestration"
+# image — rebuild the same PsN install on the Hermes base (BASE_IMAGE arg) once
+# the flow is confirmed (Phase 2/3, #194/#195). It needs PsN but NO NONMEM
+# license (dummy compiler for setup; read-only -summarize for aggregate).
+
+ARG BASE_IMAGE=perl:5.40-bookworm
+FROM ${BASE_IMAGE}
+
+# PsN release to install. Must be >= 4.6.0 (older scores crashed runs as 0, not
+# NA). v5.7.1 is the current latest; tag v<ver>, asset PsN-<ver>.tar.gz.
+# Releases: https://github.com/UUPharmacometrics/PsN/releases
+ARG PSN_VERSION=5.7.1
+
+USER root
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# System + Perl tooling PsN needs (cpanminus installs the CPAN modules).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential cpanminus curl ca-certificates dos2unix \
+        libexpat1-dev procps \
+ && rm -rf /var/lib/apt/lists/*
+
+# PsN's required Perl modules — the exact set checked by setup.pl (@nix_modules):
+# note PsN uses Mouse (not Moose) and Math::Random::Free (not Math::Random).
+# setup.pl itself uses File::HomeDir + File::Copy::Recursive at compile time.
+RUN cpanm --notest \
+        Mouse MouseX::Params::Validate \
+        Statistics::Distributions Math::Random::Free Math::SigFigs Math::MatrixReal \
+        File::HomeDir File::Copy::Recursive Capture::Tiny YAML Archive::Zip \
+ && rm -rf /root/.cpanm
+
+# Our nm_versions stanza, appended to PsN's generated psn.conf below.
+COPY docker/psn.conf /tmp/nm_versions.conf
+
+# Install PsN from the release tarball via setup.pl, fully non-interactively.
+# The tarball's top dir is "PsN-Source/" (strip it). setup.pl on Linux-as-root
+# asks, in order: 3 install-dir prompts (blank = accept defaults), then
+# "check Perl modules?/install PsNR?/install pharmpy?/install test library?/
+# help create config?" — we answer n to all five. Answering n to "help create
+# config" skips the interactive NM-version loop and copies the template psn.conf;
+# we then append our faked nm_versions to it. (Bootstrap is pure-Perl: no pharmpy
+# / R needed — if a later step proves otherwise, flip those answers to y.)
+RUN curl -fsSL -o /tmp/psn.tar.gz \
+        "https://github.com/UUPharmacometrics/PsN/releases/download/v${PSN_VERSION}/PsN-${PSN_VERSION}.tar.gz" \
+ && mkdir -p /tmp/psn \
+ && tar -xzf /tmp/psn.tar.gz -C /tmp/psn --strip-components=1 \
+ && cd /tmp/psn \
+ && printf '\n\n\nn\nn\nn\nn\nn\n' | perl setup.pl \
+ && PSNCONF="$(find / -name psn.conf -path '*PsN_*' | head -1)" \
+ && test -n "$PSNCONF" && echo "Appending nm_versions to $PSNCONF" \
+ && cat /tmp/nm_versions.conf >> "$PSNCONF" \
+ && cd / && rm -rf /tmp/psn.tar.gz /tmp/psn
+
+# Faked NONMEM "installations":
+#   /opt/NONMEM/nm75  -> mock nmfe that emits canned acop outputs (simulates a fit)
+#   /opt/NONMEM/dummy -> dummy compiler that exits without fitting (resample-only)
+COPY testdata/mock-nonmem /opt/mock-nonmem
+RUN find /opt/mock-nonmem -name '*.sh' -exec dos2unix {} \; \
+ && chmod +x /opt/mock-nonmem/*.sh \
+ && mkdir -p /opt/NONMEM/nm75/run /opt/NONMEM/dummy/run \
+ && ln -sf /opt/mock-nonmem/mock-nonmem-fast.sh /opt/NONMEM/nm75/run/nmfe75 \
+ && ln -sf /opt/mock-nonmem/dummy-nonmem.sh     /opt/NONMEM/dummy/run/nmfe75
+
+# (nm_versions were appended to PsN's generated psn.conf during install above.)
+
+# Sample model + data to exercise the spike (acop, from testdata).
+WORKDIR /work
+RUN cp /opt/mock-nonmem/acop.mod /opt/mock-nonmem/acop.csv /work/
+
+# Spike runner (Tests 1-3).
+COPY docker/psn-spike.sh /usr/local/bin/psn-spike
+RUN dos2unix /usr/local/bin/psn-spike && chmod +x /usr/local/bin/psn-spike
+
+CMD ["psn-spike"]

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/audit"
 	"github.com/pharmalytica/janus/internal/config"
+	"github.com/pharmalytica/janus/internal/runlog"
 )
 
 // TestSignalHandlingPropagation verifies that signal interruption properly
@@ -20,7 +20,7 @@ func TestSignalHandlingPropagation(t *testing.T) {
 	// Setup test environment
 	testDir := t.TempDir()
 	modelPath := testDir + "/signal_test_model.ctl"
-	auditLogPath := testDir + "/audit_signal.log"
+	runLogPath := testDir + "/runlog_signal.log"
 
 	// Create test model file
 	err := os.WriteFile(modelPath, []byte("$PROBLEM Signal Test Model\n"), 0644)
@@ -28,12 +28,12 @@ func TestSignalHandlingPropagation(t *testing.T) {
 		t.Fatalf("Failed to create test model file: %v", err)
 	}
 
-	// Create audit logger
-	auditLogger, err := audit.NewLogger(true, auditLogPath)
+	// Create run logger
+	runLogger, err := runlog.NewRunLogger(true, runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to create audit logger: %v", err)
+		t.Fatalf("Failed to create run logger: %v", err)
 	}
-	defer auditLogger.Close()
+	defer runLogger.Close()
 
 	// Create mock SLURM client with long-running job
 	mockClient := NewMockSLURMClient(testDir)
@@ -48,9 +48,9 @@ func TestSignalHandlingPropagation(t *testing.T) {
 	}
 
 	executor := &SLURMExecutor{
-		client:      mockClient,
-		config:      cfg,
-		auditLogger: auditLogger,
+		client:    mockClient,
+		config:    cfg,
+		runLogger: runLogger,
 	}
 
 	// Create root context that simulates Cobra's signal-aware context
@@ -109,8 +109,10 @@ func TestContextCancellationSpeed(t *testing.T) {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 
 	// Simulate the context chain: Root → App → Execution
-	appCtx, _ := context.WithCancel(rootCtx)
-	execCtx, _ := context.WithTimeout(appCtx, 30*time.Minute)
+	appCtx, appCancel := context.WithCancel(rootCtx)
+	defer appCancel()
+	execCtx, execCancel := context.WithTimeout(appCtx, 30*time.Minute)
+	defer execCancel()
 
 	// Start a goroutine that waits on the execution context
 	done := make(chan time.Duration, 1)
@@ -144,7 +146,7 @@ func TestContextCancellationSpeed(t *testing.T) {
 func TestJobCancellationOnSignal(t *testing.T) {
 	testDir := t.TempDir()
 	modelPath := testDir + "/cancel_test.ctl"
-	auditLogPath := testDir + "/audit_cancel.log"
+	runLogPath := testDir + "/runlog_cancel.log"
 
 	// Create test model file
 	err := os.WriteFile(modelPath, []byte("$PROBLEM Cancel Test\n"), 0644)
@@ -152,12 +154,12 @@ func TestJobCancellationOnSignal(t *testing.T) {
 		t.Fatalf("Failed to create test model file: %v", err)
 	}
 
-	// Create audit logger
-	auditLogger, err := audit.NewLogger(true, auditLogPath)
+	// Create run logger
+	runLogger, err := runlog.NewRunLogger(true, runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to create audit logger: %v", err)
+		t.Fatalf("Failed to create run logger: %v", err)
 	}
-	defer auditLogger.Close()
+	defer runLogger.Close()
 
 	// Create mock SLURM client
 	mockClient := NewMockSLURMClient(testDir)
@@ -172,9 +174,9 @@ func TestJobCancellationOnSignal(t *testing.T) {
 	}
 
 	executor := &SLURMExecutor{
-		client:      mockClient,
-		config:      cfg,
-		auditLogger: auditLogger,
+		client:    mockClient,
+		config:    cfg,
+		runLogger: runLogger,
 	}
 
 	rootCtx, rootCancel := context.WithCancel(context.Background())

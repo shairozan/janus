@@ -28,6 +28,10 @@ type Agreement struct {
 	CreatedAt    time.Time        `gorm:"default:now()" json:"created_at" db:"created_at"`
 	UpdatedAt    time.Time        `gorm:"default:now()" json:"updated_at" db:"updated_at"`
 
+	// StripeSubscriptionID links the agreement to its backing Stripe subscription
+	// (per-seat quantity). Seat expansion = a quantity increase on this sub.
+	StripeSubscriptionID *string `gorm:"type:varchar(255)" json:"stripe_subscription_id,omitempty" db:"stripe_subscription_id"`
+
 	// Relationships (loaded via joins when needed)
 	Organization *Organization `gorm:"foreignKey:OrganizationID" json:"organization,omitempty"`
 	License      *License      `gorm:"foreignKey:LicenseID" json:"license,omitempty"`
@@ -74,7 +78,7 @@ func (a *Agreement) GetMaxSeats() int {
 
 // GetFeatures returns the agreement's features if set.
 func (a *Agreement) GetFeatures() []string {
-	if a.Features != nil && len(a.Features) > 0 {
+	if len(a.Features) > 0 {
 		return []string(a.Features)
 	}
 
