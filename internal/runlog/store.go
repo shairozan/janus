@@ -89,6 +89,38 @@ func (s *RunLogStore) indexPath() string {
 	return filepath.Join(s.runlogDir(), "index.json")
 }
 
+// headPath returns the path to the signed chain head checkpoint.
+func (s *RunLogStore) headPath() string {
+	return filepath.Join(s.runlogDir(), "head.json")
+}
+
+// IsTerminal reports whether a status means the run is over and the record is now
+// an audit fact rather than mutable state.
+func IsTerminal(status string) bool {
+	switch status {
+	case "completed", "failed", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+// nextChainLocked returns the sequence and prev-hash the next sealed record must
+// take. The caller holds s.mu AND the cross-process file lock. A missing head is
+// genesis: sequence 1, no predecessor.
+func (s *RunLogStore) nextChainLocked() (int, string, error) {
+	head, err := ReadHead(s.headPath())
+	if err != nil {
+		return 0, "", fmt.Errorf("reading chain head: %w", err)
+	}
+
+	if head == nil {
+		return 1, "", nil
+	}
+
+	return head.Sequence + 1, head.TipHash, nil
+}
+
 // ensureDirectories creates the run log directory structure if needed.
 func (s *RunLogStore) ensureDirectories() error {
 	return os.MkdirAll(s.runlogDir(), 0755)
@@ -297,13 +329,13 @@ func (s *RunLogStore) upsertIndexForRecord(record *RunRecord) error {
 	return nil
 }
 
-// AddRun adds a new run record to the store.
-// Generates UUID if not set, signs if signer configured, and writes atomically.
+// AddRun adds a new run record. A run that is still executing is not yet an audit
+// fact, so it is written as an unsigned DRAFT. It is signed and chained only when
+// it reaches a terminal status — see Seal.
 func (s *RunLogStore) AddRun(record *RunRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Generate UUID if not set
 	if record.ID == "" {
 		record.ID = uuid.Must(uuid.NewV7()).String()
 	}
@@ -312,20 +344,20 @@ func (s *RunLogStore) AddRun(record *RunRecord) error {
 		record.Timestamp = time.Now()
 	}
 
-	// Sign if signer configured
-	if s.signer != nil {
-		if err := SignRecordWithInfo(record, s.signer, s.signerEmail); err != nil {
-			return fmt.Errorf("signing record: %w", err)
+	// A record that arrives already finished (the common case for a fast run, and
+	// for saga children) is sealed immediately. sealLocked writes the file itself.
+	if IsTerminal(record.Status) && s.signer != nil {
+		if err := s.sealLocked(record); err != nil {
+			return err
 		}
+
+		return s.upsertIndexForRecord(record)
 	}
 
-	// Atomic write
 	if err := s.writeRunFileLocked(record); err != nil {
 		return err
 	}
 
-	// Update index under a cross-process lock so a coexisting GUI/daemon cannot
-	// clobber each other's entries.
 	return s.upsertIndexForRecord(record)
 }
 
@@ -357,6 +389,77 @@ func (s *RunLogStore) AddSaga(parent *RunRecord, children []*RunRecord) error {
 		if err := s.AddRun(child); err != nil {
 			return fmt.Errorf("recording saga child %d: %w", i, err)
 		}
+	}
+
+	return nil
+}
+
+// Seal makes a record an audit fact: it assigns the record's chain position,
+// signs it, writes it, and advances the head — in that order, once, for good.
+//
+// Order matters. Sequence and PrevHash are assigned BEFORE signing so the
+// signature covers them; an unsigned sequence number is worthless. And signing is
+// the LAST mutation, which is what makes it impossible to sign a record and then
+// change it — the defect this replaces.
+func (s *RunLogStore) Seal(record *RunRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.sealLocked(record)
+}
+
+// sealLocked is Seal's body. The caller holds s.mu.
+func (s *RunLogStore) sealLocked(record *RunRecord) error {
+	if record.Sealed {
+		return fmt.Errorf("record %s is already sealed; corrections are amendments, not rewrites", record.ID)
+	}
+
+	if s.signer == nil {
+		// Nothing to seal with. The record stays a draft; this is not an error,
+		// it is simply an unsigned deployment.
+		return nil
+	}
+
+	// The chain head is shared across processes, so read-modify-write it under the
+	// same advisory lock that guards the index.
+	fileLock := flock.New(s.lockPath())
+	if err := fileLock.Lock(); err != nil {
+		return fmt.Errorf("acquiring chain lock: %w", err)
+	}
+	defer func() { _ = fileLock.Unlock() }()
+
+	sequence, prevHash, err := s.nextChainLocked()
+	if err != nil {
+		return err
+	}
+
+	record.Sequence = sequence
+	record.PrevHash = prevHash
+	record.Sealed = true
+
+	// Sign LAST — after every other field is final.
+	if err := SignRecordWithInfo(record, s.signer, s.signerEmail); err != nil {
+		record.Sealed = false
+
+		return fmt.Errorf("signing record: %w", err)
+	}
+
+	if err := s.writeRunFileLocked(record); err != nil {
+		return err
+	}
+
+	tipHash, err := RecordHash(record)
+	if err != nil {
+		return err
+	}
+
+	head := &Head{Sequence: sequence, TipHash: tipHash}
+	if err := SignHead(head, s.signer); err != nil {
+		return fmt.Errorf("signing chain head: %w", err)
+	}
+
+	if err := WriteHead(s.headPath(), head); err != nil {
+		return err
 	}
 
 	return nil
@@ -550,26 +653,38 @@ func (s *RunLogStore) GetAllRuns() []RunRecord {
 	return runs
 }
 
-// UpdateRun updates an existing run record in place.
-// This is used to update status, output, etc. after execution completes.
+// UpdateRun updates a DRAFT record — a run that is still in flight. When the
+// update carries the run to a terminal status, the record is sealed: chained,
+// signed, and made immutable.
+//
+// A sealed record cannot be updated. That is the point: it is an audit entry, and
+// audit entries are appended to, never rewritten. This is what closes the defect
+// where a signed record was mutated and saved with its now-stale signature,
+// causing Janus to report its own completion path as tampering.
 func (s *RunLogStore) UpdateRun(record *RunRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Sign if signer configured and record isn't already signed
-	if s.signer != nil && record.Signature == "" {
-		if err := SignRecordWithInfo(record, s.signer, s.signerEmail); err != nil {
-			return fmt.Errorf("signing record: %w", err)
-		}
+	// Trust the record on disk, not the caller's in-memory copy — the caller may
+	// be holding a stale struct, and "am I sealed?" must be answered by the file.
+	if existing, err := s.loadRunLocked(record.ID); err == nil && existing.Sealed {
+		return fmt.Errorf(
+			"run %s is sealed and cannot be modified; append an amendment record instead",
+			record.ID,
+		)
 	}
 
-	// Write updated record
+	if IsTerminal(record.Status) && s.signer != nil {
+		if err := s.sealLocked(record); err != nil {
+			return err
+		}
+
+		return s.upsertIndexForRecord(record)
+	}
+
 	if err := s.writeRunFileLocked(record); err != nil {
 		return err
 	}
 
-	// Re-read and upsert the index under the cross-process lock; this both updates
-	// this record's status/signed flags and preserves entries another process may
-	// have added since we loaded.
 	return s.upsertIndexForRecord(record)
 }

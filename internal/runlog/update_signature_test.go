@@ -16,13 +16,17 @@ import (
 // every run takes in production: AddRun records the run when it starts, UpdateRun
 // records the outcome when it finishes.
 //
-// AddRun signs unconditionally (store.go), while UpdateRun re-signs only when
-// record.Signature == "" — which it never is, because AddRun just set it. The
-// mutated record is therefore written back to disk carrying the signature of its
-// pre-mutation self.
+// Under the draft/seal lifecycle, AddRun writes a still-running record as an
+// unsigned DRAFT (it is not yet an audit fact), and UpdateRun seals it — assigns
+// its chain position and signs it — only once it reaches a terminal status. This
+// is what makes "sign then mutate" impossible by construction: signing is the
+// LAST thing that ever happens to a record.
 //
-// If that reading is right, the record reloaded from disk fails verification and
-// Janus reports its own normal completion path as tampering.
+// Previously, AddRun signed unconditionally, and UpdateRun re-signed only when
+// record.Signature == "" — which was never true, because AddRun had just set it.
+// The mutated record was therefore written back to disk carrying the signature of
+// its pre-mutation self, and the record reloaded from disk failed verification:
+// Janus reported its own normal completion path as tampering.
 func TestUpdateRunPreservesSignatureValidity(t *testing.T) {
 	dir := t.TempDir()
 
@@ -39,26 +43,24 @@ func TestUpdateRunPreservesSignatureValidity(t *testing.T) {
 	require.NoError(t, store.Load())
 	store.SetSigner(signer, "johnny@example.com")
 
-	// 1. The run starts. AddRun signs it.
+	// 1. The run starts. AddRun writes it as an unsigned draft — it is not yet an
+	//    audit fact, so there is nothing to sign.
 	record := &RunRecord{
 		ModelFile: "model.mod",
 		Status:    "running",
 	}
 	require.NoError(t, store.AddRun(record))
-	require.NotEmpty(t, record.Signature, "AddRun should have signed the record")
-
-	signatureAtCreation := record.Signature
-
-	// Sanity: as signed, it verifies.
-	require.NoError(t,
-		VerifyRecord(record, publicKeyPEM),
-		"the record should verify immediately after AddRun signed it")
+	require.Empty(t, record.Signature, "a running record is a draft and must not be signed yet")
+	require.False(t, record.Sealed)
 
 	// 2. The run finishes. The completion path mutates the record and saves it.
 	//    This mirrors internal/gui/app.go:4420-4430 and internal/mcpservice/result.go:80.
 	record.Status = "completed"
 	record.ExitCode = 0
 	require.NoError(t, store.UpdateRun(record))
+
+	require.True(t, record.Sealed, "reaching a terminal status must seal the record")
+	require.NotEmpty(t, record.Signature, "sealing signs the record")
 
 	// 3. Reload from disk — this is what verification actually sees.
 	reloaded, err := store.GetRun(record.ID)
@@ -67,8 +69,7 @@ func TestUpdateRunPreservesSignatureValidity(t *testing.T) {
 	require.Equal(t, "completed", reloaded.Status,
 		"the mutation must have been persisted, otherwise this test proves nothing")
 
-	t.Logf("signature at creation:  %.32s...", signatureAtCreation)
-	t.Logf("signature after update: %.32s...", reloaded.Signature)
+	t.Logf("signature after seal:   %.32s...", reloaded.Signature)
 	t.Logf("status on disk:         %s", reloaded.Status)
 
 	// THE CLAIM: the persisted record still verifies. If defect 3 is real, it does not.
