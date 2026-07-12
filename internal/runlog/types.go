@@ -86,6 +86,19 @@ type RunRecord struct {
 	Kind     string `json:"kind,omitempty"`
 	ParentID string `json:"parent_id,omitempty"`
 
+	// Chain linkage. Assigned once, at seal time, and covered by the signature —
+	// an unsigned sequence number would be worthless. Sequence is monotonic per
+	// model starting at 1; PrevHash is the RecordHash of the previous sealed
+	// record ("" for the genesis record). Drafts have Sealed=false and carry
+	// neither.
+	Sequence int    `json:"sequence,omitempty"`
+	PrevHash string `json:"prev_hash,omitempty"`
+	Sealed   bool   `json:"sealed,omitempty"`
+
+	// Amends names the ID of a sealed record this record corrects. Sealed records
+	// are immutable, so a correction is an append, never a rewrite.
+	Amends string `json:"amends,omitempty"`
+
 	// Container provenance for Hermes executions (CFR 21 Part 11 compliance)
 	// Captures image URI, tag, SHA digest, and resource configuration
 	Container *ContainerProvenance `json:"container,omitempty"`
