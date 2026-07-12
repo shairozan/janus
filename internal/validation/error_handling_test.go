@@ -26,7 +26,7 @@ func TestREQ34_GracefulErrorHandling(t *testing.T) {
 			// Test 1: Invalid NONMEM path
 			cfg := &config.Config{
 				Input: config.Input{
-					NonmemPath: "/nonexistent/path/to/nmfe",
+					NonmemPath:    "/nonexistent/path/to/nmfe",
 					ExecutionMode: config.ExecutionModeNONMEM,
 				},
 			}
@@ -45,7 +45,7 @@ func TestREQ34_GracefulErrorHandling(t *testing.T) {
 			// Test 2: Missing model file
 			cfg2 := &config.Config{
 				Input: config.Input{
-					NonmemPath: "/bin/echo", // Use echo as placeholder
+					NonmemPath:    "/bin/echo", // Use echo as placeholder
 					ExecutionMode: config.ExecutionModeNONMEM,
 				},
 			}
@@ -81,7 +81,7 @@ func TestREQ35_ErrorMessageClarity(t *testing.T) {
 
 			cfg := &config.Config{
 				Input: config.Input{
-					NonmemPath: "/nonexistent/nmfe",
+					NonmemPath:    "/nonexistent/nmfe",
 					ExecutionMode: config.ExecutionModeNONMEM,
 				},
 			}
@@ -99,10 +99,10 @@ func TestREQ35_ErrorMessageClarity(t *testing.T) {
 			// Error should mention the failure
 			assert.True(t,
 				strings.Contains(strings.ToLower(errorMsg), "failed") ||
-				strings.Contains(strings.ToLower(errorMsg), "error") ||
-				strings.Contains(strings.ToLower(errorMsg), "not found") ||
-				strings.Contains(strings.ToLower(errorMsg), "no such") ||
-				strings.Contains(strings.ToLower(errorMsg), "exist"),
+					strings.Contains(strings.ToLower(errorMsg), "error") ||
+					strings.Contains(strings.ToLower(errorMsg), "not found") ||
+					strings.Contains(strings.ToLower(errorMsg), "no such") ||
+					strings.Contains(strings.ToLower(errorMsg), "exist"),
 				"Error message should indicate failure: %s", errorMsg)
 
 			t.Logf("Error message clarity verified: %s", errorMsg)
@@ -126,7 +126,7 @@ func TestREQ36_RecoveryFromFailures(t *testing.T) {
 
 			cfg := &config.Config{
 				Input: config.Input{
-					NonmemPath: "/bin/echo", // Use echo as working executable
+					NonmemPath:    "/bin/echo", // Use echo as working executable
 					ExecutionMode: config.ExecutionModeNONMEM,
 				},
 			}
@@ -143,7 +143,7 @@ func TestREQ36_RecoveryFromFailures(t *testing.T) {
 			// Second execution: succeeds after fixing the configuration
 			executor2 := execution.NewNONMEMExecutor(&config.Config{
 				Input: config.Input{
-					NonmemPath: "/bin/echo",
+					NonmemPath:    "/bin/echo",
 					ExecutionMode: config.ExecutionModeNONMEM,
 				},
 			})

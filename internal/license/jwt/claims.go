@@ -16,19 +16,26 @@ type Claims struct {
 	OrganizationID int64 `json:"organization_id"` // Organization ID
 
 	// License information
-	Tier            string   `json:"tier"`              // "basic", "professional", "enterprise"
-	Features        []string `json:"features"`          // ["local", "grid", "audit"]
-	Seats           int      `json:"seats"`             // Number of licensed seats
-	MaxSeats        int      `json:"max_seats"`         // Maximum seats (alias for compatibility)
-	OrgName         string   `json:"org_name"`          // Human-readable organization name
-	UserEmail       string   `json:"user_email"`        // User email (duplicate of sub for compatibility)
+	Tier      string   `json:"tier"`       // "basic", "professional", "enterprise"
+	Features  []string `json:"features"`   // ["local", "grid", "audit"]
+	Seats     int      `json:"seats"`      // Number of licensed seats
+	MaxSeats  int      `json:"max_seats"`  // Maximum seats (alias for compatibility)
+	OrgName   string   `json:"org_name"`   // Human-readable organization name
+	UserEmail string   `json:"user_email"` // User email (duplicate of sub for compatibility)
 
 	// License model
-	LicenseModel    string `json:"license_model,omitempty"`     // "per-seat" or "concurrent"
-	ConcurrentLimit int    `json:"concurrent_limit,omitempty"`  // For concurrent model
+	LicenseModel    string `json:"license_model,omitempty"`    // "per-seat" or "concurrent"
+	ConcurrentLimit int    `json:"concurrent_limit,omitempty"` // For concurrent model
 
 	// Optional: License server URL for concurrent model
 	LicenseServerURL string `json:"license_server_url,omitempty"`
+
+	// Run log signing configuration
+	// SigningPublicKey is the PEM-encoded RSA public key for run log signature verification.
+	// Users generate RSA key pairs externally and submit the public key when requesting
+	// a license. Janus validates that the configured private key matches this public key
+	// at startup. If empty, run log signing is disabled.
+	SigningPublicKey string `json:"signing_public_key,omitempty"`
 
 	// Key rotation support
 	KeyID string `json:"-"` // Stored in JWT header, not claims
@@ -48,6 +55,7 @@ func NewClaims(
 	concurrentLimit int,
 	duration time.Duration,
 	keyID string,
+	signingPublicKey string,
 ) *Claims {
 	now := time.Now()
 
@@ -71,6 +79,7 @@ func NewClaims(
 		LicenseModel:     licenseModel,
 		ConcurrentLimit:  concurrentLimit,
 		KeyID:            keyID,
+		SigningPublicKey: signingPublicKey,
 	}
 }
 

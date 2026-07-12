@@ -17,45 +17,38 @@ import (
 // relative to the model location, ensuring file watchers monitor the right directories.
 func TestSLURMOutputPathResolution(t *testing.T) {
 	tests := []struct {
-		name              string
-		modelPath         string
-		expectedWorkDir   string
-		expectedOutputDir string
-		description       string
+		name        string
+		modelPath   string
+		description string
 	}{
 		{
-			name:              "simple_model_in_current_dir",
-			modelPath:         "/project/models/run001.mod",
-			expectedWorkDir:   "/project/models",
-			expectedOutputDir: "/project/models",
-			description:       "Model in project directory - output files written to same directory",
+			name:        "simple_model_in_current_dir",
+			modelPath:   "/project/models/run001.mod",
+			description: "Model in project directory - output files written to same directory",
 		},
 		{
-			name:              "model_in_subdirectory",
-			modelPath:         "/project/pharma/models/pk/run001.mod",
-			expectedWorkDir:   "/project/pharma/models/pk",
-			expectedOutputDir: "/project/pharma/models/pk",
-			description:       "Model in subdirectory - output files follow model location",
+			name:        "model_in_subdirectory",
+			modelPath:   "/project/pharma/models/pk/run001.mod",
+			description: "Model in subdirectory - output files follow model location",
 		},
 		{
-			name:              "model_in_temporary_directory",
-			modelPath:         "/tmp/janus_temp/model.ctl",
-			expectedWorkDir:   "/tmp/janus_temp",
-			expectedOutputDir: "/tmp/janus_temp",
-			description:       "Model in temp directory - output files written to temp location",
+			name:        "model_in_temporary_directory",
+			modelPath:   "/tmp/janus_temp/model.ctl",
+			description: "Model in temp directory - output files written to temp location",
 		},
 		{
-			name:              "windows_style_path",
-			modelPath:         "C:\\Users\\analyst\\models\\final_run.mod",
-			expectedWorkDir:   filepath.Dir("C:\\Users\\analyst\\models\\final_run.mod"),
-			expectedOutputDir: filepath.Dir("C:\\Users\\analyst\\models\\final_run.mod"),
-			description:       "Windows path - output files follow model location",
+			name:        "windows_style_path",
+			modelPath:   "C:\\Users\\analyst\\models\\final_run.mod",
+			description: "Windows path - output files follow model location",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Log("Testing scenario:", tt.description)
+
+			// The model's directory, resolved with the host's path semantics.
+			expectedDir := filepath.Dir(tt.modelPath)
 
 			// Create SLURM executor
 			cfg := &config.Config{
@@ -70,7 +63,7 @@ func TestSLURMOutputPathResolution(t *testing.T) {
 			submitOptions := executor.buildSubmitOptions(tt.modelPath, 4, true, []string{})
 
 			// Verify working directory
-			assert.Equal(t, tt.expectedWorkDir, submitOptions.WorkingDir,
+			assert.Equal(t, expectedDir, submitOptions.WorkingDir,
 				"Working directory should be the model's directory")
 
 			// Verify output file paths are absolute and in the expected directory
@@ -86,9 +79,9 @@ func TestSLURMOutputPathResolution(t *testing.T) {
 			outputDir := filepath.Dir(submitOptions.OutputFile)
 			errorDir := filepath.Dir(submitOptions.ErrorFile)
 
-			assert.Equal(t, tt.expectedOutputDir, outputDir,
+			assert.Equal(t, expectedDir, outputDir,
 				"Output file should be in the expected directory")
-			assert.Equal(t, tt.expectedOutputDir, errorDir,
+			assert.Equal(t, expectedDir, errorDir,
 				"Error file should be in the expected directory")
 
 			// Critical verification: ensure file watcher will monitor the correct paths
@@ -145,10 +138,13 @@ func TestFileWatcherPathConsistency(t *testing.T) {
 	executor, err := NewSLURMExecutor(cfg, nil)
 	require.NoError(t, err)
 
+	// Build absolute, OS-native model paths (t.TempDir is absolute on every
+	// platform, unlike a hard-coded "/home/..." which is not absolute on Windows).
+	base := t.TempDir()
 	testCases := []string{
-		"/home/user/models/pk_model.mod",
-		"/scratch/analysis/final_run.ctl",
-		"/data/pharma/models/bioequivalence/be_study.mod",
+		filepath.Join(base, "models", "pk_model.mod"),
+		filepath.Join(base, "analysis", "final_run.ctl"),
+		filepath.Join(base, "bioequivalence", "be_study.mod"),
 	}
 
 	for _, modelPath := range testCases {

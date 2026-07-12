@@ -7,11 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/pharmalytica/janus/internal/license/db"
 	"github.com/pharmalytica/janus/internal/license/db/testutil"
 	"github.com/pharmalytica/janus/internal/license/models"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestSigningKeyCRUD(t *testing.T) {

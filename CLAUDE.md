@@ -4,7 +4,7 @@ fyne.io framework. Primary functionality is about:
 1. Loading a model
 2. Execution (Locally or Remotely)
 3. Tracking execution via log that cohabitates with the model
-4. Audit trail (Eventually)
+4. Execution run log (implemented)
 5. Self validating state
 
 # Code Expectations
@@ -15,6 +15,13 @@ fyne.io framework. Primary functionality is about:
    4. Things should be built at the highest layers and handed through layers
 5. Errors should not be abandoned or silently handled
 6. Global variables are forbidden unless _EXPLICITLY_ allowed here
+
+## GitHub Operations
+
+Prefer the GitHub MCP server tools (`mcp__github__*`) for issues, PRs, and
+milestones. The `gh` CLI is allowed and is the right tool for things the MCP
+server doesn't cover — most notably **Actions/workflow run and job logs**
+(e.g. `gh run view <run-id> --log-failed`, `gh run view --job <job-id> --log`).
 
 ## Linting expectations
 Follow rules defined in golangci.yml when possible:
@@ -32,6 +39,46 @@ The whole point of this is two things:
 
 If anything you plan to do removes either of the above, it's not an acceptable option.
 There's no point to automation if it can't handle releases and the like.
+
+# Frontend Development
+
+The web front-end (the Next.js management portal) lives in `web/portal/`.
+
+**Always run frontend work through a design skill** — building or restyling
+components, pages, or interfaces. Two are available; use one of them, never
+neither:
+
+- **`frontend-design`** — the established default. A general aesthetic-direction
+  and design-quality pass.
+- **`impeccable`** (`pbakaus/impeccable`) — a heavier, command-driven design
+  language (`critique`, `audit`, `polish`, `animate`, `typeset`, `layout`,
+  `harden`, ...). Prefer it for scoped evaluation and refinement of surfaces that
+  already exist. Invoke as `$impeccable <command> <target>`.
+
+Either way, the point is the same: a deliberate design pass so the UI stays
+distinctive and production-grade rather than generic.
+
+**Caveat when using `impeccable`:** its "absolute bans" are written against
+generic AI output and collide head-on with our committed direction — it treats
+the warm cream/paper background band and navy-and-gold as saturated AI defaults
+to be rejected. For Janus they are *not* defaults; they are a deliberate,
+documented brand. Our design standards win. Take impeccable's craft guidance
+(contrast ratios, line length, motion, z-index scales, a11y, responsive) and
+reject its identity-level rewrites. If it proposes abandoning the palette or
+type system, stop and ask rather than complying.
+
+**Before** any design pass, read `documentation/design/frontend-design-standards.md`.
+It is the authoritative record of the design decisions already made and *why* —
+the aesthetic direction (neoclassical editorial: cream paper, navy ink, gold
+accent), the color tokens, the type system (Fraunces + Hanken Grotesk), the
+component conventions, and accessibility/quality bars. Honor and extend those
+standards; do not invent parallel styles. If a decision there needs to change,
+update that document in the same change.
+
+Reuse the existing design tokens (`web/portal/app/globals.css` →
+`tailwind.config.ts`) and `components/ui/` primitives rather than hand-rolling
+one-off styles. Every change must keep `pnpm lint`, `pnpm typecheck`, `pnpm test`,
+and `pnpm build` green (run from `web/portal/`).
 
 # Docker Development Workflow
 
@@ -270,7 +317,7 @@ Janus validation focuses on **system call generation and output parsing** rather
 - Command construction logic
 - File handling and project management
 - Grid system integration (command generation + output parsing)
-- Audit trail generation
+- Execution run log generation
 
 **External Dependencies (What We Don't Validate):**
 - NONMEM/PSN mathematical correctness
@@ -359,7 +406,7 @@ func TestSLURMOutputParsing(t *testing.T) {
 - Test: "Given config X, does Janus generate system call Y?"
 - Test: "Given UI input Z, does Janus produce expected command?"
 - Test: "Given grid output A, does Janus parse status B correctly?"
-- Validate file handling, project management, audit trails
+- Validate file handling, project management, run logs
 - Validate error conditions and graceful failure handling
 
 ## Benefits of This Strategy
@@ -398,326 +445,3 @@ func (m *MockGridExecutor) Execute(cmd string, args []string) (string, error) {
 ```
 
 This validation approach ensures comprehensive testing of Janus functionality while maintaining clear boundaries with external systems, making it ideal for both development and regulatory validation requirements.
-- ```type SlurmSummary struct {
-    Errors     []SlurmError    `json:"errors"`
-    Statistics SlurmStatistics `json:"statistics"`
-}
-
-type SlurmStatistics struct {
-    PartsPacked            int `json:"parts_packed"`
-    RequestTime            int `json:"req_time"`
-    RequestTimeStart       int `json:"req_time_start"`
-    ServerThreadCount      int `json:"server_thread_count"`
-    AgentQueueSize         int `json:"agent_queue_size"`
-    AgentThreadCount       int `json:"agent_thread_count"`
-    DBDAgentQueueSize      int `json:"dbd_agent_queue_size"`
-    GetTimeOfDayLatency    int `json:"get_time_of_day_latency"`
-    ScheduleCycleMax       int `json:"schedule_cycle_max"`
-    ScheduleCycleLast      int `json:"schedule_cycle_last"`
-    ScheduleCycleTotal     int `json:"schedule_cycle_total"`
-    ScheduleCycleMean      int `json:"schedule_cycle_mean"`
-    ScheduleCycleMeanDepth int `json:"schedule_cycle_mean_depth"`
-    ScheduleCyclePerMinute int `json:"schedule_cycle_per_minute"`
-    ScheduleQueueLength    int `json:"schedule_queue_length"`
-    JobsSubmitted          int `json:"jobs_submitted"`
-    JobsStarted            int `json:"jobs_started"`
-    JobsCompleted          int `json:"jobs_completed"`
-    JobsCancelled          int `json:"jobs_cancelled"`
-    JobsFailed             int `json:"jobs_failed"`
-    JobsPending            int `json:"jobs_pending"`
-    JobsRunning            int `json:"jobs_running"`
-    // JobStatesTimestamp is an epoch value for when the above statistics for jobs was collected
-    JobStatesTimestamp int `json:"job_states_ts"`
-
-    // Backfill components
-    BFBackfilledJobs     int  `json:"bf_backfilled_jobs"`
-    BFLastBackfilledJobs int  `json:"bf_last_backfilled_jobs"`
-    BFBackfilledHETJobs  int  `json:"bf_backfilled_het_jobs"`
-    BFCycleCounter       int  `json:"bf_cycle_counter"`
-    BFCycleMean          int  `json:"bf_cycle_mean"`
-    BFDepthMean          int  `json:"bf_depth_mean"`
-    BFDepthMeanTry       int  `json:"bf_depth_mean_try"`
-    BFCycleLast          int  `json:"bf_cycle_last"`
-    BFCycleMax           int  `json:"bf_cycle_max"`
-    BFQueueLength        int  `json:"bf_queue_len"`
-    BFQueueLengthMean    int  `json:"bf_queue_len_mean"`
-    BFWhenLastCycle      int  `json:"bf_when_last_cycle"`
-    BFActive             bool `json:"bf_active"`
-}
-
-type JobCreationRequest struct {
-    Account                  *string             `json:"account,omitempty"`
-    AccrueTime               *int                `json:"accrue_time,omitempty"`
-    AdminComment             *string             `json:"admin_comment,omitempty"`
-    ArrayJobId               *int                `json:"array_job_id,omitempty"`
-    ArrayTaskId              *int                `json:"array_task_id,omitempty"`
-    ArrayMaxTasks            *int                `json:"array_max_tasks,omitempty"`
-    AssociationID            *int                `json:"association_id,omitempty"`
-    BatchFeatures            *string             `json:"batch_features,omitempty"`
-    BatchFlag                *bool               `json:"batch_flag,omitempty"`
-    BatchHost                *string             `json:"batch_host,omitempty"`
-    Flags                    *[]string           `json:"flags,omitempty"`
-    BurstBuffer              *string             `json:"burst_buffer,omitempty"`
-    BurstBufferState         *string             `json:"burst_buffer_state,omitempty"`
-    Cluster                  *string             `json:"cluster,omitempty"`
-    ClusterFeatures          *string             `json:"cluster_features,omitempty"`
-    Command                  *string             `json:"command,omitempty"`
-    Comment                  *string             `json:"comment,omitempty"`
-    Contiguous               *bool               `json:"contiguous,omitempty"`
-    BillableTres             *float64            `json:"billable_tres,omitempty"`
-    CPUsPerTask              *int                `json:"cpus_per_task,omitempty"`
-    CPUFrequencyMinimum      *int                `json:"cpu_frequency_minimum,omitempty"`
-    CPUFrequencyMaximum      *int                `json:"cpu_frequency_maximum,omitempty"`
-    CPUFrequencyGovernor     *int                `json:"cpu_frequency_governor,omitempty"`
-    CPUSPerTres              *string             `json:"cpus_per_tres,omitempty"`
-    Deadline                 *int                `json:"deadline,omitempty"`
-    DelayBoot                *int                `json:"delay_boot,omitempty"`
-    Dependency               *string             `json:"dependency,omitempty"`
-    DerivedExitCode          *int                `json:"derived_exit_code,omitempty"`
-    EligibleTime             *int                `json:"eligible_time,omitempty"`
-    EndTime                  *int                `json:"end_time,omitempty"`
-    Environment              map[string]string   `json:"environment" required:"true"`
-    ExcludedNodes            *string             `json:"excluded_nodes,omitempty"`
-    ExitCode                 *int                `json:"exit_code,omitempty"`
-    Features                 *string             `json:"features,omitempty"`
-    FederationOrigin         *string             `json:"federation_origin,omitempty"`
-    FederationSiblingsActive *string             `json:"federation_siblings_active,omitempty"`
-    FederationSiblingsViable *string             `json:"federation_siblings_viable,omitempty"`
-    GRESDetail               *[]string           `json:"gres_detail,omitempty"`
-    GroupID                  *int                `json:"group_id,omitempty"`
-    JobId                    *int                `json:"job_id,omitempty"`
-    Resources                *slurm.JobResources `json:"job_resources,omitempty"`
-    State                    *string             `json:"job_state,omitempty"`
-    LastScheduledEvaluation  *int                `json:"last_sched_evaluation,omitempty"`
-    Licenses                 *string             `json:"licenses,omitempty"`
-    MaxCPUs                  *int                `json:"max_cpus,omitempty"`
-    MaxNodes                 *int                `json:"max_nodes,omitempty"`
-    MCSLabel                 *string             `json:"mcs_label,omitempty"`
-    MemoryPerTres            *string             `json:"memory_per_tres,omitempty"`
-    Name                     *string             `json:"name,omitempty"`
-    Nodes                    *string             `json:"nodes,omitempty"`
-    Nice                     *string             `json:"nice,omitempty"`
-    TasksPerCore             *int                `json:"tasks_per_core,omitempty"`
-    TasksPerSocket           *int                `json:"tasks_per_socket,omitempty"`
-    TasksPerBoard            *int                `json:"tasks_per_board,omitempty"`
-    CPUS                     *int                `json:"cpus,omitempty"`
-    NodeCounts               *int                `json:"node_counts,omitempty"`
-    Tasks                    *int                `json:"tasks,omitempty"`
-    HetJobID                 *int                `json:"het_job_id,omitempty"`
-    HetJobIDSet              *string             `json:"het_job_id_set,omitempty"`
-    HetJobOffset             *int                `json:"het_job_offset,omitempty"`
-    Partition                *string             `json:"partition,omitempty"`
-    MemoryPerNode            *int                `json:"memory_per_node,omitempty"`
-    MemoryPerCPU             *int                `json:"memory_per_cpu,omitempty"`
-    MinimumCPUsPerNod        *int                `json:"minimum_cpus_per_nod,omitempty"`
-    MinimumTmpDiskPerNode    *int                `json:"minimum_tmp_disk_per_node,omitempty"`
-    PreemptTime              *int                `json:"preempt_time,omitempty"`
-    PreSusTime               *int                `json:"pre_sus_time,omitempty"`
-    Priority                 *int                `json:"priority,omitempty"`
-    Profile                  *string             `json:"profile,omitempty"`
-    QOS                      *string             `json:"qos,omitempty"`
-    Reboot                   *bool               `json:"reboot,omitempty"`
-    RequiredNodes            *string             `json:"required_nodes,omitempty"`
-    Requeue                  *bool               `json:"requeue,omitempty"`
-    ResizeTime               *int                `json:"resize_time,omitempty"`
-    RestartCount             *int                `json:"restart_cnt,omitempty"`
-    ResvName                 *string             `json:"resv_name,omitempty"`
-    Shared                   *string             `json:"shared,omitempty"`
-    ShowFlags                *[]string           `json:"show_flags,omitempty"`
-    SocketsPerBoard          *int                `json:"sockets_per_board,omitempty"`
-    SocketsPerNode           *int                `json:"sockets_per_node,omitempty"`
-    StartTime                *int                `json:"start_time,omitempty"`
-    StateDescription         *string             `json:"state_description,omitempty"`
-    StandardError            *string             `json:"standard_error,omitempty"`
-    StandardInput            *string             `json:"standard_input,omitempty"`
-    StandardOutput           *string             `json:"standard_output,omitempty"`
-    SubmitTime               *int                `json:"submit_time,omitempty"`
-    SuspendTime              *int                `json:"suspend_time,omitempty"`
-    TimeLimit                *int                `json:"time_limit,omitempty"`
-    TimeMinimum              *int                `json:"time_minimum,omitempty"`
-    ThreadsPerCore           *int                `json:"threads_per_core,omitempty"`
-    TresBind                 *string             `json:"tres_bind,omitempty"`
-    TresFreq                 *string             `json:"tres_freq,omitempty"`
-    TresPerJob               *string             `json:"tres_per_job,omitempty"`
-    TresPerNode              *string             `json:"tres_per_node,omitempty"`
-    TresPerSocket            *string             `json:"tres_per_socket,omitempty"`
-    TresPerTask              *string             `json:"tres_per_task,omitempty"`
-    TresReqStr               *string             `json:"tres_req_str,omitempty"`
-    TresAllocStr             *string             `json:"tres_alloc_str,omitempty"`
-    UserID                   *int                `json:"user_id,omitempty"`
-    UserName                 *string             `json:"user_name,omitempty"`
-    WCKey                    *string             `json:"wc_key,omitempty"`
-    CurrentWorkingDirectory  *string             `json:"CurrentWorkingDirectory,omitempty"`
-}``` is a known working submission model for v0.0.36. It's worth reviewing as a starting point
-
-# Claude Code File Editing Troubleshooting
-
-## When Edit Tool Continuously Fails
-
-If you encounter repeated failures when trying to edit files with the Edit tool, the most common cause is **whitespace mismatch**. Here's how to diagnose and fix it:
-
-### Diagnosis Steps
-
-1. **Check File Indentation Type**:
-   ```bash
-   # Show actual whitespace characters (tabs show as ^I, spaces as literal spaces)
-   cat -A filename.go | head -20
-   ```
-
-2. **Common Issue**: Go files often use **tab characters** for indentation, but when you read them with the Read tool, they display as spaces in the output.
-
-3. **Why Edit Fails**: When you copy text from Read tool output (which shows spaces), and try to match it against the actual file content (which contains tabs), the Edit tool fails because the strings don't match exactly.
-
-### Solution Approaches
-
-**Option 1: Use Exact Characters**
-- When editing, use the actual tab characters, not the visual spaces shown in Read output
-- Copy the **exact** whitespace from `cat -A` output or similar tools
-
-**Option 2: Alternative Edit Methods**
-- Use `sed` for simple replacements: `sed -i 's/old/new/g' file.go`
-- Use `MultiEdit` tool which may handle whitespace better
-- For complex changes, use `Write` tool to rewrite sections
-
-**Option 3: Debugging Pattern**
-```bash
-# 1. Examine the exact file content around your target area
-grep -n "your search text" file.go
-sed -n '20,30p' file.go | cat -A  # Show lines 20-30 with whitespace visible
-
-# 2. Make targeted changes with sed if Edit fails
-sed -i 's/exact_old_text/exact_new_text/g' file.go
-
-# 3. Verify the change worked
-grep -A5 -B5 "new_text" file.go
-```
-
-### Example: Tab vs Space Issue
-
-**What Read tool shows you**:
-```
-    if condition {
-        doSomething()
-    }
-```
-
-**What's actually in the file** (when using tabs):
-```
-^Iif condition {^I^I// ^I = tab character
-^I^IdoSomething()
-^I}
-```
-
-**Failed Edit** (trying to match spaces):
-```go
-// This fails because file contains tabs, not spaces
-Edit("    if condition {", "    if newCondition {")
-```
-
-**Successful Edit** (using actual tabs):
-```go
-// This works because it matches the actual tab characters
-Edit("\\tif condition {", "\\tif newCondition {")
-```
-
-### Prevention
-
-- When copying text from Read tool output for Edit operations, be aware that indentation may be displayed differently than stored
-- For complex multi-line edits, consider using MultiEdit or breaking into smaller single-line changes
-- When in doubt, use `cat -A filename` to see the exact characters before attempting edits
-
-### Real Example from This Codebase
-
-When trying to edit `internal/execution/slurm.go`:
-
-**What failed**:
-```go
-Edit("	// Wait for file collection to complete\n	wg.Wait()\n\n	duration := time.Since(startTime)", "...")
-```
-
-**What worked**:
-```go
-Edit("	// Wait for file collection to complete\n	wg.Wait()\n\n	duration := time.Since(startTime)", "...")
-// Using actual tab characters (^I) instead of visual spaces
-```
-
-The key was using `cat -A` to see that the file used tabs (`^I`) not spaces, then matching the exact characters.
-
-# Docker-Based Development (Windows CGO Solution)
-
-Building Go applications with CGO dependencies (like Fyne GUI framework) on Windows can be problematic due to C compiler toolchain issues. To solve this, use the Docker-based mage commands that leverage the `dukeofubuntu/janus-ci:latest-ubuntu24` image.
-
-## Docker Commands Reference
-
-All Docker commands are now organized under the `docker:` namespace for better organization.
-
-### Building
-- `mage docker:build` - Build the binary in Docker (solves Windows CGO issues)
-
-### Testing
-- `mage docker:test` - Run all tests in Docker
-- `mage docker:unit` - Run unit tests only in Docker
-- `mage docker:integration` - Run integration tests in Docker
-- `mage docker:signalTest` - Run signal handling tests in Docker
-- `mage docker:mockSlurm` - Run mock SLURM tests in Docker
-
-### Development Workflows
-- `mage docker:check` - Run format, lint, and unit tests in Docker
-- `mage docker:checkAll` - Run complete validation (format, lint, tests, build) in Docker
-- `mage docker:lint` - Run linting in Docker
-
-### Specialized Operations
-- `mage docker:validation` - Run validation tests in Docker
-- `mage docker:release v1.0.0` - Build release version in Docker
-
-### Debugging
-- `mage docker:shell` - Open interactive shell in Docker container for debugging
-
-## When to Use Docker Commands (Windows Primary OS)
-
-**ALWAYS use Docker commands on Windows for:**
-1. Building the application (`mage docker:build` instead of `mage build`)
-2. Running GUI-related tests (anything in `internal/gui/`)
-3. Running integration tests that might have CGO dependencies
-4. Running the complete validation pipeline (`mage docker:checkAll`)
-
-**Can use local commands on Windows for:**
-- Pure Go unit tests (no CGO dependencies)
-- Linting Go code (if golangci-lint is installed locally)
-- File operations and code analysis
-
-## Example Workflow for Windows Development
-
-```bash
-# Check code quality (format, lint, unit tests, build)
-mage docker:checkAll
-
-# Run specific tests
-mage docker:signalTest
-mage docker:mockSlurm
-
-# Build for release
-mage docker:build
-
-# Debug issues
-mage docker:shell
-# (then inside container: mage build, go test -v ./..., etc.)
-```
-
-## Prerequisites
-
-- Docker Desktop installed and running
-- `dukeofubuntu/janus-ci:latest-ubuntu24` image available:
-  ```bash
-  docker pull dukeofubuntu/janus-ci:latest-ubuntu24
-  ```
-
-## How It Works
-
-The Docker commands:
-1. Mount the current directory as `/workspace` in the container
-2. Run mage commands inside the Linux container with proper CGO toolchain
-3. Output built artifacts back to the Windows host
-4. Provide identical behavior to local commands but in a controlled Linux environment
-
-This approach eliminates Windows CGO compilation issues while maintaining the exact same development workflow.

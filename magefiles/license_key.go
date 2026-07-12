@@ -10,11 +10,12 @@ import (
 	"github.com/magefile/mage/sh"
 )
 
-// ExportPublicKey exports the master public key from the license-server to .license_public_key.pem
-// This key will be automatically embedded into Janus during the next build.
-// The license-server must be running for this to work.
+// ExportPublicKey exports the license-server master public key(s) to .license_public_key.pem.
+// All non-revoked master keys are exported (newest first) as concatenated PEM blocks so the
+// build can validate licenses signed by any historical key. They are automatically embedded
+// into Janus during the next build. The license-server must be running for this to work.
 func (License) ExportPublicKey() error {
-	fmt.Println("🔑 Exporting license server master public key...")
+	fmt.Println("🔑 Exporting license server master public key(s)...")
 
 	// Check if .env exists
 	if _, err := os.Stat(".env"); os.IsNotExist(err) {
@@ -47,38 +48,44 @@ for i in {1..30}; do
 done
 
 # Get list of all keys
-echo "🔍 Fetching master key..."
+echo "🔍 Fetching master keys..."
 keys_response=$(curl -s "$BASE_URL/api/v1/keys")
 
-# Extract the first master key (organization_id = null)
-master_key_id=$(echo "$keys_response" | jq -r '.[] | select(.organization_id == null) | .key_id' | head -1)
+# Extract all non-revoked master keys (organization_id = null), newest first.
+# A missing revoked_at is treated as not-revoked by jq's null comparison.
+master_key_ids=$(echo "$keys_response" | jq -r '[.[] | select(.organization_id == null and .revoked_at == null)] | sort_by(.created_at) | reverse | .[].key_id')
 
-if [ -z "$master_key_id" ] || [ "$master_key_id" == "null" ]; then
+if [ -z "$master_key_ids" ]; then
   echo "❌ No master key found!"
   echo "   You need to generate a master key first:"
   echo "   curl -X POST $BASE_URL/api/v1/keys/rotate -H 'Content-Type: application/json' -d '{\"expires_in_days\": 365}'"
   exit 1
 fi
 
-echo "📥 Found master key: $master_key_id"
+# Concatenate each key's public PEM into the embed file (newest first).
+: > .license_public_key.pem
+exported=0
+for master_key_id in $master_key_ids; do
+  public_key=$(curl -s "$BASE_URL/api/v1/keys/public?key_id=$master_key_id" | jq -r '.public_key_pem')
+  if [ -z "$public_key" ] || [ "$public_key" == "null" ]; then
+    echo "⚠️  Skipping $master_key_id - failed to retrieve public key"
+    continue
+  fi
+  echo "$public_key" >> .license_public_key.pem
+  echo "📥 Exported key: $master_key_id"
+  exported=$((exported + 1))
+done
 
-# Get the public key
-public_key=$(curl -s "$BASE_URL/api/v1/keys/public?key_id=$master_key_id" | jq -r '.public_key_pem')
-
-if [ -z "$public_key" ] || [ "$public_key" == "null" ]; then
-  echo "❌ Failed to retrieve public key"
+if [ "$exported" -eq 0 ]; then
+  echo "❌ Failed to retrieve any public keys"
   exit 1
 fi
 
-# Save to file
-echo "$public_key" > .license_public_key.pem
-
-echo "✅ Public key exported to .license_public_key.pem"
-echo "   Key ID: $master_key_id"
+echo "✅ Exported $exported public key(s) to .license_public_key.pem"
 echo ""
 echo "🔨 Next steps:"
 echo "   1. Build Janus: mage build"
-echo "      (The public key will be automatically embedded)"
+echo "      (The public key(s) will be automatically embedded)"
 echo "   2. The .license_public_key.pem file is git-ignored for security"
 `
 

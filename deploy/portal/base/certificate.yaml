@@ -1,0 +1,22 @@
+# cert-manager Certificate for the portal. It reuses the shared `letsencrypt-prod`
+# Issuer the license-server already provides in janus-license (same namespace),
+# solves the DNS-01 challenge via Cloudflare, and writes the resulting cert/key
+# into the Secret named below, which the Ingress references via spec.tls[].secretName.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: portal-tls
+  labels:
+    app.kubernetes.io/name: portal
+spec:
+  secretName: portal-tls
+  dnsNames:
+    - app.januspk.com
+  issuerRef:
+    name: letsencrypt-prod # switch to letsencrypt-staging while testing
+    kind: Issuer
+  duration: 2160h    # 90d
+  renewBefore: 360h  # 15d
+  privateKey:
+    algorithm: ECDSA
+    size: 256

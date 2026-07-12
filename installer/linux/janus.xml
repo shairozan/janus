@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="text/x-nonmem-model">
+    <comment>NONMEM Model File</comment>
+    <comment xml:lang="en">NONMEM Model File</comment>
+    <glob pattern="*.mod"/>
+    <icon name="janus"/>
+    <generic-icon name="text-x-generic"/>
+  </mime-type>
+
+  <mime-type type="text/x-nonmem-control">
+    <comment>NONMEM Control Stream</comment>
+    <comment xml:lang="en">NONMEM Control Stream</comment>
+    <glob pattern="*.ctl"/>
+    <glob pattern="*.nmctl"/>
+    <icon name="janus"/>
+    <generic-icon name="text-x-generic"/>
+  </mime-type>
+</mime-info>

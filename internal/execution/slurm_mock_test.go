@@ -17,34 +17,34 @@ import (
 
 // MockSLURMClient implements the slurm.Client interface for testing
 type MockSLURMClient struct {
-	mu          sync.RWMutex
-	jobCounter  int
-	jobs        map[string]*MockJob
-	testDir     string
+	mu         sync.RWMutex
+	jobCounter int
+	jobs       map[string]*MockJob
+	testDir    string
 
 	// Test control
-	jobDuration       time.Duration
-	simulateFailure   bool
-	jobStates         []string // Progression of states for realistic simulation
-	contentGenerator  func(string) MockJobContent // Custom content generation function
+	jobDuration      time.Duration
+	simulateFailure  bool
+	jobStates        []string                    // Progression of states for realistic simulation
+	contentGenerator func(string) MockJobContent // Custom content generation function
 }
 
 // MockJob represents a simulated SLURM job
 type MockJob struct {
-	ID           string
-	JobName      string
-	State        string
-	ExitCode     int
-	OutputFile   string
-	ErrorFile    string
-	WorkingDir   string
+	ID         string
+	JobName    string
+	State      string
+	ExitCode   int
+	OutputFile string
+	ErrorFile  string
+	WorkingDir string
 
 	// Simulation control
-	startTime    time.Time
-	duration     time.Duration
-	content      MockJobContent
-	stateIndex   int
-	states       []string
+	startTime  time.Time
+	duration   time.Duration
+	content    MockJobContent
+	stateIndex int
+	states     []string
 }
 
 // MockJobContent defines what content to write to output files

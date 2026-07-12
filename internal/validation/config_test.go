@@ -31,9 +31,9 @@ organization: "Test Organization"
 default-directory: "/tmp/test"
 nonmem-path: "/opt/NONMEM/nm76/run/nmfe76"
 execution-mode: "NONMEM"
-audit:
+runlog:
   backend: "json"
-  path: "/tmp/audit.jsonl"
+  path: "/tmp/runlog.jsonl"
 projects: false
 validation:
   iq: "/tmp/iq_reports"
@@ -65,7 +65,7 @@ slurm:
 			assert.Equal(t, "/tmp/test", input.DefaultDirectory, "Default directory should be loaded from config")
 			assert.Equal(t, "/opt/NONMEM/nm76/run/nmfe76", input.NonmemPath, "NONMEM path should be loaded from config")
 			assert.Equal(t, "NONMEM", input.ExecutionMode, "Execution mode should be loaded from config")
-			assert.Equal(t, "json", input.Audit.Backend, "Audit backend should be loaded from config")
+			assert.Equal(t, "json", input.RunLog.Backend, "Audit backend should be loaded from config")
 			assert.False(t, input.ProjectsEnable, "Projects enable should be loaded from config")
 
 			// Validate nested structures
@@ -156,7 +156,7 @@ func TestREQ20_DefaultConfigurationValues(t *testing.T) {
 			// Set some basic defaults that would typically be set by cobra flags
 			viper.SetDefault("execution-mode", "NONMEM")
 			viper.SetDefault("organization", "")
-			viper.SetDefault("audit-engine", false)
+			viper.SetDefault("runlog-enabled", false)
 			viper.SetDefault("projects", false)
 
 			// Create Input with defaults
@@ -166,7 +166,7 @@ func TestREQ20_DefaultConfigurationValues(t *testing.T) {
 			// Validate default values
 			assert.Equal(t, "NONMEM", input.ExecutionMode, "Should use default execution mode")
 			assert.Equal(t, "", input.Organization, "Should use default organization")
-			assert.Empty(t, input.Audit.Backend, "Should use default audit backend (empty)")
+			assert.Empty(t, input.RunLog.Backend, "Should use default run log backend (empty)")
 			assert.False(t, input.ProjectsEnable, "Should use default projects setting")
 
 			// Test that we can create a valid config with defaults
@@ -196,9 +196,9 @@ func TestREQ21_ConfigurationValidation(t *testing.T) {
 			err := config.ValidateExecutionMode("NONMEM")
 			assert.NoError(t, err, "NONMEM execution mode should always be valid")
 
-			// Test that BBI and PSN modes validate syntax but may fail on tool availability
+			// Test that BBI, PSN, and HERMES modes validate syntax but may fail on tool availability
 			// The validation function should recognize them as valid mode names, even if tools aren't available
-			validModeNames := []string{"NONMEM", "BBI", "PSN"}
+			validModeNames := []string{"NONMEM", "BBI", "PSN", "HERMES"}
 			allValidModes := config.GetValidExecutionModes()
 			assert.Equal(t, validModeNames, allValidModes, "Should return all valid execution mode names")
 
@@ -284,8 +284,8 @@ func TestREQ18_ConfigurationProcessing(t *testing.T) {
 			viper.Set("execution-mode", "NONMEM")
 			viper.Set("organization", "Test Org")
 			viper.Set("nonmem-path", "/test/nonmem/path")
-			viper.Set("audit.backend", "json")
-			viper.Set("audit.path", "/tmp/audit.jsonl")
+			viper.Set("runlog.backend", "json")
+			viper.Set("runlog.path", "/tmp/runlog.jsonl")
 
 			// Process configuration using the main Process function
 			cfg, err := config.Process()
@@ -296,7 +296,7 @@ func TestREQ18_ConfigurationProcessing(t *testing.T) {
 			assert.Equal(t, "NONMEM", cfg.ExecutionMode, "Execution mode should be processed correctly")
 			assert.Equal(t, "Test Org", cfg.Organization, "Organization should be processed correctly")
 			assert.Equal(t, "/test/nonmem/path", cfg.NonmemPath, "NONMEM path should be processed correctly")
-			assert.Equal(t, "json", cfg.Audit.Backend, "Audit backend should be processed correctly")
+			assert.Equal(t, "json", cfg.RunLog.Backend, "Audit backend should be processed correctly")
 
 			// Validate that runtime fields are populated
 			assert.NotEmpty(t, cfg.Version, "Version should be populated during processing")

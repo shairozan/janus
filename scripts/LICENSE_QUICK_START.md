@@ -169,11 +169,8 @@ go build -ldflags "-X 'github.com/pharmalytica/janus/internal/license/publickey.
 After running the workflow or manual steps:
 
 ```bash
-# Run Janus (will validate license automatically)
+# Run Janus (will validate license automatically and launch GUI)
 ./janus
-
-# Or run GUI specifically
-./janus gui
 ```
 
 If license is invalid or missing, you'll see a GUI dialog with the error.

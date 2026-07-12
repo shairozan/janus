@@ -1,0 +1,45 @@
+/* Tailwind's three layers: resets, component classes, utility classes.
+   Tailwind replaces these directives with the generated CSS at build time. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Janus design tokens ──────────────────────────────────────────────────
+   Neoclassical editorial palette drawn from the logo: cream paper, deep navy
+   ink, gold-leaf accent. Everything downstream (Tailwind colors, components)
+   reads these variables, so the whole portal re-themes from one place. */
+:root {
+  --paper: #f6f2e9; /* warm cream page */
+  --surface: #fbf9f3; /* raised cards / panels */
+  --ink: #16314f; /* primary text — deep navy */
+  --ink-muted: #5b6573; /* secondary text — slate */
+  --brand: #1e3a5f; /* logo navy */
+  --gold: #b9912f; /* refined antique gold accent */
+  --gold-soft: #d8c79a; /* faint gold for hairlines/washes */
+  --line: #e6ddca; /* warm hairline borders */
+}
+
+@layer base {
+  body {
+    /* faint vertical paper wash for depth, not a flat fill */
+    background-color: var(--paper);
+    background-image: radial-gradient(
+      120% 80% at 50% -10%,
+      color-mix(in srgb, var(--surface) 70%, transparent),
+      transparent 60%
+    );
+    color: var(--ink);
+    font-feature-settings: "ss01", "cv01";
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--gold) 28%, transparent);
+  }
+
+  /* tasteful focus ring in the brand gold */
+  :focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+  }
+}

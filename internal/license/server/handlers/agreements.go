@@ -7,11 +7,12 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/license/models"
 	"gorm.io/gorm"
+
+	"github.com/pharmalytica/janus/internal/license/models"
 )
 
-// CreateAgreementRequest represents the request to create an agreement
+// CreateAgreementRequest represents the request to create an agreement.
 type CreateAgreementRequest struct {
 	OrganizationID int64    `json:"organization_id" validate:"required"`
 	Tier           string   `json:"tier" validate:"required"`
@@ -22,7 +23,7 @@ type CreateAgreementRequest struct {
 	EndDate        *string  `json:"end_date,omitempty"`
 }
 
-// UpdateAgreementRequest represents the request to update an agreement
+// UpdateAgreementRequest represents the request to update an agreement.
 type UpdateAgreementRequest struct {
 	Tier         *string   `json:"tier,omitempty"`
 	MaxSeats     *int      `json:"max_seats,omitempty"`
@@ -31,7 +32,7 @@ type UpdateAgreementRequest struct {
 	EndDate      *string   `json:"end_date,omitempty"`
 }
 
-// AgreementResponse represents the response for agreement operations
+// AgreementResponse represents the response for agreement operations.
 type AgreementResponse struct {
 	ID             int64      `json:"id"`
 	OrganizationID int64      `json:"organization_id"`
@@ -73,13 +74,12 @@ func agreementToResponse(agr *models.Agreement) AgreementResponse {
 	return resp
 }
 
-// CreateAgreement creates a new agreement
+// CreateAgreement creates a new agreement.
 func CreateAgreement(
 	db *gorm.DB,
 	logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req CreateAgreementRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -183,13 +183,12 @@ func CreateAgreement(
 	}
 }
 
-// GetAgreement retrieves an agreement by ID
+// GetAgreement retrieves an agreement by ID.
 func GetAgreement(
 	db *gorm.DB,
 	logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.URL.Query().Get("id")
 		if idStr == "" {
@@ -217,13 +216,12 @@ func GetAgreement(
 	}
 }
 
-// ListAgreements retrieves all agreements (optionally filtered by organization)
+// ListAgreements retrieves all agreements (optionally filtered by organization).
 func ListAgreements(
 	db *gorm.DB,
 	logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		orgIDStr := r.URL.Query().Get("organization_id")
 
@@ -256,13 +254,12 @@ func ListAgreements(
 	}
 }
 
-// UpdateAgreement updates an existing agreement
+// UpdateAgreement updates an existing agreement.
 func UpdateAgreement(
 	db *gorm.DB,
 	logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.URL.Query().Get("id")
 		if idStr == "" {
@@ -332,13 +329,12 @@ func UpdateAgreement(
 	}
 }
 
-// DeleteAgreement soft-deletes an agreement by setting deactivated_at
+// DeleteAgreement soft-deletes an agreement by setting deactivated_at.
 func DeleteAgreement(
 	db *gorm.DB,
 	logger *log.Logger,
 	writeJSON func(http.ResponseWriter, int, interface{}),
 	writeError func(http.ResponseWriter, int, string)) http.HandlerFunc {
-
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.URL.Query().Get("id")
 		if idStr == "" {

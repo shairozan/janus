@@ -36,7 +36,6 @@ func NewCLIClient(cfg config.SLURMConfig) (*CLIClient, error) {
 	}, nil
 }
 
-
 // SubmitJob submits a job using sbatch command.
 func (c *CLIClient) SubmitJob(ctx context.Context, jobScript string, options SubmitOptions) (*JobInfo, error) {
 	// Build sbatch command arguments

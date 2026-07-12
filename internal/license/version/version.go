@@ -6,7 +6,7 @@ import (
 )
 
 // Build-time variables set via ldflags.
-// Example: go build -ldflags "-X github.com/pharmalytica/janus/internal/license/version.Version=v1.0.0"
+// Example: go build -ldflags "-X github.com/pharmalytica/janus/internal/license/version.Version=v1.0.0".
 var (
 	Version = "dev"     // Version is the git tag version
 	Commit  = "unknown" // Commit is the git commit hash

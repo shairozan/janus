@@ -4,7 +4,8 @@ import "fmt"
 
 // OIDCConfig holds the configuration for OIDC authentication.
 type OIDCConfig struct {
-	// IssuerURL is the OIDC provider's issuer URL (e.g., https://dev-xxx.us.auth0.com)
+	// IssuerURL is the OIDC provider's issuer URL.
+	// For Cognito: https://cognito-idp.<region>.amazonaws.com/<user-pool-id>
 	IssuerURL string
 
 	// ClientID is the OAuth2 client ID for this application

@@ -197,6 +197,8 @@ func Clean() error {
 		"janus-ubuntu2004",
 		"janus-ubuntu2204",
 		"janus-ubuntu2404",
+		"executor",
+		"executor.exe",
 		"coverage.out",
 		"coverage.html",
 		"deb-package",
@@ -214,6 +216,16 @@ func Clean() error {
 		for _, deb := range debFiles {
 			if err := sh.Rm(deb); err != nil && !os.IsNotExist(err) {
 				fmt.Printf("⚠️  Warning: failed to remove %s: %v\n", deb, err)
+			}
+		}
+	}
+
+	// Clean up any executor platform binaries
+	executorFiles, err := filepath.Glob("executor-*")
+	if err == nil {
+		for _, exec := range executorFiles {
+			if err := sh.Rm(exec); err != nil && !os.IsNotExist(err) {
+				fmt.Printf("⚠️  Warning: failed to remove %s: %v\n", exec, err)
 			}
 		}
 	}
@@ -712,6 +724,200 @@ Homepage: https://github.com/pharmalytica/janus
 	fmt.Println("")
 	fmt.Println("🚀 Run:")
 	fmt.Println("   janus")
+
+	return nil
+}
+
+// BuildExecutor builds the executor binary for the current platform
+func BuildExecutor() error {
+	fmt.Println("🔨 Building executor binary...")
+
+	// Copy license public key to cmd/executor for embedding
+	// This allows the executor to validate licenses using the embedded key
+	licenseSrc := ".license_public_key.pem"
+	licenseDst := "cmd/executor/.license_public_key.pem"
+	if _, err := os.Stat(licenseSrc); err == nil {
+		if err := sh.Copy(licenseDst, licenseSrc); err != nil {
+			fmt.Printf("⚠️  Warning: Failed to copy license public key: %v\n", err)
+			fmt.Println("   Executor will run in dev mode (license validation skipped)")
+		} else {
+			fmt.Println("📋 License public key copied for embedding")
+		}
+	} else {
+		fmt.Println("⚠️  Warning: No license public key found at repository root")
+		fmt.Println("   Executor will run in dev mode (license validation skipped)")
+	}
+
+	// Get git commit
+	commit, _ := sh.Output("git", "rev-parse", "HEAD")
+	if commit == "" {
+		commit = "unknown"
+	}
+
+	// Get current date
+	date, _ := sh.Output("date", "-u", "+%Y-%m-%dT%H:%M:%SZ")
+	if date == "" {
+		date = "unknown"
+	}
+
+	// Get version from environment or use "dev"
+	version := os.Getenv("VERSION")
+	if version == "" {
+		version = "dev"
+	}
+
+	ldflags := fmt.Sprintf(
+		"-s -w "+
+			"-X github.com/pharmalytica/janus/internal/version.Version=%s "+
+			"-X github.com/pharmalytica/janus/internal/version.Commit=%s "+
+			"-X github.com/pharmalytica/janus/internal/version.Date=%s "+
+			"-X github.com/pharmalytica/janus/internal/version.BuiltBy=mage",
+		version, commit, date,
+	)
+
+	env := map[string]string{
+		"CGO_ENABLED": "0", // Executor is pure Go, no CGO required
+	}
+
+	return sh.RunWithV(env, goexe, "build", "-ldflags", ldflags, "-o", "executor", "./cmd/executor")
+}
+
+// BuildExecutorAll builds executor binaries for all supported platforms
+func BuildExecutorAll() error {
+	fmt.Println("🔨 Building executor for all platforms...")
+
+	platforms := []struct {
+		GOOS   string
+		GOARCH string
+		Suffix string
+	}{
+		{"linux", "amd64", "-linux-amd64"},
+		{"linux", "arm64", "-linux-arm64"},
+		{"darwin", "amd64", "-darwin-amd64"},
+		{"darwin", "arm64", "-darwin-arm64"},
+		{"windows", "amd64", "-windows-amd64.exe"},
+	}
+
+	// Get git commit
+	commit, _ := sh.Output("git", "rev-parse", "HEAD")
+	if commit == "" {
+		commit = "unknown"
+	}
+
+	// Get current date
+	date, _ := sh.Output("date", "-u", "+%Y-%m-%dT%H:%M:%SZ")
+	if date == "" {
+		date = "unknown"
+	}
+
+	// Get version from environment or use "dev"
+	version := os.Getenv("VERSION")
+	if version == "" {
+		version = "dev"
+	}
+
+	ldflags := fmt.Sprintf(
+		"-s -w "+
+			"-X github.com/pharmalytica/janus/internal/version.Version=%s "+
+			"-X github.com/pharmalytica/janus/internal/version.Commit=%s "+
+			"-X github.com/pharmalytica/janus/internal/version.Date=%s "+
+			"-X github.com/pharmalytica/janus/internal/version.BuiltBy=mage",
+		version, commit, date,
+	)
+
+	for _, platform := range platforms {
+		fmt.Printf("🔨 Building executor for %s/%s...\n", platform.GOOS, platform.GOARCH)
+
+		env := map[string]string{
+			"GOOS":        platform.GOOS,
+			"GOARCH":      platform.GOARCH,
+			"CGO_ENABLED": "0", // Executor is pure Go, no CGO required
+		}
+
+		output := "executor" + platform.Suffix
+
+		if err := sh.RunWithV(env, goexe, "build", "-ldflags", ldflags, "-o", output, "./cmd/executor"); err != nil {
+			return fmt.Errorf("failed to build %s: %w", output, err)
+		}
+
+		fmt.Printf("✅ Built: %s\n", output)
+	}
+
+	fmt.Println("✅ All executor binaries built successfully!")
+	return nil
+}
+
+// Executor namespace for executor-specific commands
+type Executor mg.Namespace
+
+// Build builds the executor binary for the current platform (same as BuildExecutor)
+func (Executor) Build() error {
+	return BuildExecutor()
+}
+
+// BuildAll builds executor binaries for all supported platforms (same as BuildExecutorAll)
+func (Executor) BuildAll() error {
+	return BuildExecutorAll()
+}
+
+// Install builds and installs the executor binary to ~/bin/executor
+func (Executor) Install() error {
+	fmt.Println("📦 Installing executor to ~/bin/executor...")
+
+	// Build the executor first
+	if err := BuildExecutor(); err != nil {
+		return fmt.Errorf("failed to build executor: %w", err)
+	}
+
+	// Get home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	// Create ~/bin if it doesn't exist
+	binDir := filepath.Join(homeDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		return fmt.Errorf("failed to create ~/bin directory: %w", err)
+	}
+
+	// Install the executor
+	targetPath := filepath.Join(binDir, "executor")
+	if err := sh.Copy(targetPath, "executor"); err != nil {
+		return fmt.Errorf("failed to copy executor to %s: %w", targetPath, err)
+	}
+
+	// Make it executable
+	if err := os.Chmod(targetPath, 0755); err != nil {
+		return fmt.Errorf("failed to set executable permissions: %w", err)
+	}
+
+	// Clean up the temporary build artifact
+	if err := sh.Rm("executor"); err != nil && !os.IsNotExist(err) {
+		fmt.Printf("⚠️  Warning: failed to remove temporary executor binary: %v\n", err)
+	}
+
+	fmt.Printf("✅ Executor installed to: %s\n", targetPath)
+	fmt.Println("")
+	fmt.Println("🚀 Usage:")
+	fmt.Println("   executor --help")
+	fmt.Println("   executor --executor-version")
+	fmt.Println("")
+	fmt.Println("💡 Make sure ~/bin is in your PATH:")
+	fmt.Println("   export PATH=\"$HOME/bin:$PATH\"")
+	fmt.Println("   # Add the above line to your ~/.bashrc or ~/.zshrc")
+
+	// Check if ~/bin is in PATH
+	pathEnv := os.Getenv("PATH")
+	if !strings.Contains(pathEnv, filepath.Join(homeDir, "bin")) {
+		fmt.Println("")
+		fmt.Println("⚠️  Warning: ~/bin is not in your PATH")
+		fmt.Println("   Run the following to add it temporarily:")
+		fmt.Println("   export PATH=\"$HOME/bin:$PATH\"")
+	} else {
+		fmt.Println("")
+		fmt.Println("✅ ~/bin is already in your PATH")
+	}
 
 	return nil
 }

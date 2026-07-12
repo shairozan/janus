@@ -1,0 +1,18 @@
+# Build context hygiene for docker/portal/Dockerfile (context = web/portal).
+# Keep the context small and never ship host-built artifacts or secrets.
+node_modules
+.next
+.pnpm-store
+out
+build
+coverage
+playwright-report
+test-results
+e2e/.auth
+.env
+.env*.local
+*.tsbuildinfo
+.git
+Dockerfile*
+docker-compose*.yml
+README.md

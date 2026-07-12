@@ -2,9 +2,11 @@ package commands
 
 import (
 	"fmt"
+	"log"
+
+	"github.com/spf13/cobra"
 
 	"github.com/pharmalytica/janus/internal/license/db"
-	"github.com/spf13/cobra"
 )
 
 // MigrateCommand creates the migrate command.
@@ -45,7 +47,7 @@ func migrateUpCommand() *cobra.Command {
 			}
 
 			version, _ := db.GetMigrationStatus(sqlDB)
-			fmt.Printf("✓ Migrations applied (version: %d)\n", version)
+			log.Printf("Migrations applied (version: %d)", version)
 
 			return nil
 		},
@@ -53,7 +55,7 @@ func migrateUpCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&databaseURL, "database-url", "",
 		"PostgreSQL connection string")
-	cmd.MarkFlagRequired("database-url")
+	_ = cmd.MarkFlagRequired("database-url")
 
 	return cmd
 }
@@ -81,7 +83,7 @@ func migrateDownCommand() *cobra.Command {
 			}
 
 			version, _ := db.GetMigrationStatus(sqlDB)
-			fmt.Printf("✓ Migration rolled back (version: %d)\n", version)
+			log.Printf("Migration rolled back (version: %d)", version)
 
 			return nil
 		},
@@ -89,7 +91,7 @@ func migrateDownCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&databaseURL, "database-url", "",
 		"PostgreSQL connection string")
-	cmd.MarkFlagRequired("database-url")
+	_ = cmd.MarkFlagRequired("database-url")
 
 	return cmd
 }
@@ -118,7 +120,7 @@ func migrateStatusCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&databaseURL, "database-url", "",
 		"PostgreSQL connection string")
-	cmd.MarkFlagRequired("database-url")
+	_ = cmd.MarkFlagRequired("database-url")
 
 	return cmd
 }

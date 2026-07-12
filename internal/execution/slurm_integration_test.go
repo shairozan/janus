@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/audit"
 	"github.com/pharmalytica/janus/internal/config"
+	"github.com/pharmalytica/janus/internal/runlog"
 )
 
 // TestSLURMExecutorWithMockClient_FastJob tests the fast job scenario
@@ -21,7 +21,7 @@ func TestSLURMExecutorWithMockClient_FastJob(t *testing.T) {
 	// Setup test environment
 	testDir := t.TempDir()
 	modelPath := filepath.Join(testDir, "test_model.ctl")
-	auditLogPath := filepath.Join(testDir, "audit.log")
+	runLogPath := filepath.Join(testDir, "runlog.log")
 
 	// Create test model file
 	err := os.WriteFile(modelPath, []byte("$PROBLEM Test Model\n$DATA test.csv\n"), 0644)
@@ -29,12 +29,12 @@ func TestSLURMExecutorWithMockClient_FastJob(t *testing.T) {
 		t.Fatalf("Failed to create test model file: %v", err)
 	}
 
-	// Create audit logger
-	auditLogger, err := audit.NewLogger(true, auditLogPath)
+	// Create run logger
+	runLogger, err := runlog.NewRunLogger(true, runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to create audit logger: %v", err)
+		t.Fatalf("Failed to create run logger: %v", err)
 	}
-	defer auditLogger.Close()
+	defer runLogger.Close()
 
 	// Create mock SLURM client
 	mockClient := NewMockSLURMClient(testDir)
@@ -66,9 +66,9 @@ func TestSLURMExecutorWithMockClient_FastJob(t *testing.T) {
 	}
 
 	executor := &SLURMExecutor{
-		client:      mockClient,
-		config:      cfg,
-		auditLogger: auditLogger,
+		client:    mockClient,
+		config:    cfg,
+		runLogger: runLogger,
 	}
 
 	// Execute the job
@@ -104,19 +104,19 @@ func TestSLURMExecutorWithMockClient_FastJob(t *testing.T) {
 		t.Errorf("STDERR missing expected content. Actual: %s", stderrStr)
 	}
 
-	// Verify audit log was created and contains the job
-	auditEntries, err := audit.ReadLogEntries(auditLogPath)
+	// Verify run log was created and contains the job
+	runLogEntries, err := runlog.ReadRunEntries(runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to read audit log: %v", err)
+		t.Fatalf("Failed to read run log: %v", err)
 	}
 
-	if len(auditEntries) != 1 {
-		t.Fatalf("Expected 1 audit entry, got %d", len(auditEntries))
+	if len(runLogEntries) != 1 {
+		t.Fatalf("Expected 1 run log entry, got %d", len(runLogEntries))
 	}
 
-	entry := auditEntries[0]
+	entry := runLogEntries[0]
 
-	// Verify audit entry contains complete output
+	// Verify run log entry contains complete output
 	if !strings.Contains(entry.STDOUT, "NONMEM Fast Job Starting") {
 		t.Errorf("Audit STDOUT missing expected content: %s", entry.STDOUT)
 	}
@@ -125,13 +125,13 @@ func TestSLURMExecutorWithMockClient_FastJob(t *testing.T) {
 		t.Errorf("Audit STDERR missing expected content: %s", entry.STDERR)
 	}
 
-	// Verify SLURM-specific audit fields
+	// Verify SLURM-specific run log fields
 	if entry.SLURMJobID == "" {
 		t.Error("Audit entry missing SLURM job ID")
 	}
 
 	if len(entry.OutputFiles) != 2 {
-		t.Errorf("Expected 2 output files in audit entry, got %d", len(entry.OutputFiles))
+		t.Errorf("Expected 2 output files in run log entry, got %d", len(entry.OutputFiles))
 	}
 
 	t.Logf("Fast job test passed - Audit job ID: %s, SLURM job ID: %s", entry.JobID, entry.SLURMJobID)
@@ -142,7 +142,7 @@ func TestSLURMExecutorWithMockClient_SlowJob(t *testing.T) {
 	// Setup test environment
 	testDir := t.TempDir()
 	modelPath := filepath.Join(testDir, "slow_model.ctl")
-	auditLogPath := filepath.Join(testDir, "audit_slow.log")
+	runLogPath := filepath.Join(testDir, "runlog_slow.log")
 
 	// Create test model file
 	err := os.WriteFile(modelPath, []byte("$PROBLEM Slow Model\n$DATA slow.csv\n"), 0644)
@@ -150,12 +150,12 @@ func TestSLURMExecutorWithMockClient_SlowJob(t *testing.T) {
 		t.Fatalf("Failed to create test model file: %v", err)
 	}
 
-	// Create audit logger
-	auditLogger, err := audit.NewLogger(true, auditLogPath)
+	// Create run logger
+	runLogger, err := runlog.NewRunLogger(true, runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to create audit logger: %v", err)
+		t.Fatalf("Failed to create run logger: %v", err)
 	}
-	defer auditLogger.Close()
+	defer runLogger.Close()
 
 	// Create mock SLURM client for slow job
 	mockClient := NewMockSLURMClient(testDir)
@@ -170,9 +170,9 @@ func TestSLURMExecutorWithMockClient_SlowJob(t *testing.T) {
 	}
 
 	executor := &SLURMExecutor{
-		client:      mockClient,
-		config:      cfg,
-		auditLogger: auditLogger,
+		client:    mockClient,
+		config:    cfg,
+		runLogger: runLogger,
 	}
 
 	// Execute the job
@@ -202,25 +202,25 @@ func TestSLURMExecutorWithMockClient_SlowJob(t *testing.T) {
 		}
 	}
 
-	// Verify audit log captures complete output despite incremental writing
-	auditEntries, err := audit.ReadLogEntries(auditLogPath)
+	// Verify run log captures complete output despite incremental writing
+	runLogEntries, err := runlog.ReadRunEntries(runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to read audit log: %v", err)
+		t.Fatalf("Failed to read run log: %v", err)
 	}
 
-	if len(auditEntries) != 1 {
-		t.Fatalf("Expected 1 audit entry, got %d", len(auditEntries))
+	if len(runLogEntries) != 1 {
+		t.Fatalf("Expected 1 run log entry, got %d", len(runLogEntries))
 	}
 
-	entry := auditEntries[0]
+	entry := runLogEntries[0]
 
-	// The key test: ensure incremental writing still results in complete audit capture
+	// The key test: ensure incremental writing still results in complete run log capture
 	if !strings.Contains(entry.STDOUT, "Starting NONMEM execution") ||
 		!strings.Contains(entry.STDOUT, "NONMEM execution completed") {
 		t.Errorf("Audit log missing complete STDOUT content from incremental job: %s", entry.STDOUT)
 	}
 
-	t.Logf("Slow job test passed - captured %d bytes of stdout in audit", len(entry.STDOUT))
+	t.Logf("Slow job test passed - captured %d bytes of stdout in run log", len(entry.STDOUT))
 }
 
 // TestSLURMExecutorWithMockClient_StreamingOutput tests the streaming functionality
@@ -228,7 +228,7 @@ func TestSLURMExecutorWithMockClient_StreamingOutput(t *testing.T) {
 	// Setup test environment
 	testDir := t.TempDir()
 	modelPath := filepath.Join(testDir, "stream_model.ctl")
-	auditLogPath := filepath.Join(testDir, "audit_stream.log")
+	runLogPath := filepath.Join(testDir, "runlog_stream.log")
 
 	// Create test model file
 	err := os.WriteFile(modelPath, []byte("$PROBLEM Stream Model\n"), 0644)
@@ -236,12 +236,12 @@ func TestSLURMExecutorWithMockClient_StreamingOutput(t *testing.T) {
 		t.Fatalf("Failed to create test model file: %v", err)
 	}
 
-	// Create audit logger
-	auditLogger, err := audit.NewLogger(true, auditLogPath)
+	// Create run logger
+	runLogger, err := runlog.NewRunLogger(true, runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to create audit logger: %v", err)
+		t.Fatalf("Failed to create run logger: %v", err)
 	}
-	defer auditLogger.Close()
+	defer runLogger.Close()
 
 	// Create mock SLURM client with custom slow content generation
 	mockClient := NewMockSLURMClient(testDir)
@@ -274,9 +274,9 @@ func TestSLURMExecutorWithMockClient_StreamingOutput(t *testing.T) {
 	}
 
 	executor := &SLURMExecutor{
-		client:      mockClient,
-		config:      cfg,
-		auditLogger: auditLogger,
+		client:    mockClient,
+		config:    cfg,
+		runLogger: runLogger,
 	}
 
 	// Execute with streaming
@@ -354,14 +354,14 @@ collectLoop:
 		t.Errorf("Expected exit code 0, got %d", result.ExitCode)
 	}
 
-	// Verify audit log contains the streaming job
-	auditEntries, err := audit.ReadLogEntries(auditLogPath)
+	// Verify run log contains the streaming job
+	runLogEntries, err := runlog.ReadRunEntries(runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to read audit log: %v", err)
+		t.Fatalf("Failed to read run log: %v", err)
 	}
 
-	if len(auditEntries) != 1 {
-		t.Fatalf("Expected 1 audit entry, got %d", len(auditEntries))
+	if len(runLogEntries) != 1 {
+		t.Fatalf("Expected 1 run log entry, got %d", len(runLogEntries))
 	}
 
 	t.Logf("Streaming test passed - received %d stdout and %d stderr messages",
@@ -376,7 +376,7 @@ func TestSLURMExecutorWithMockClient_FailedJob(t *testing.T) {
 	// Setup test environment
 	testDir := t.TempDir()
 	modelPath := filepath.Join(testDir, "failed_model.ctl")
-	auditLogPath := filepath.Join(testDir, "audit_failed.log")
+	runLogPath := filepath.Join(testDir, "runlog_failed.log")
 
 	// Create test model file
 	err := os.WriteFile(modelPath, []byte("$PROBLEM Failed Model\n"), 0644)
@@ -384,12 +384,12 @@ func TestSLURMExecutorWithMockClient_FailedJob(t *testing.T) {
 		t.Fatalf("Failed to create test model file: %v", err)
 	}
 
-	// Create audit logger
-	auditLogger, err := audit.NewLogger(true, auditLogPath)
+	// Create run logger
+	runLogger, err := runlog.NewRunLogger(true, runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to create audit logger: %v", err)
+		t.Fatalf("Failed to create run logger: %v", err)
 	}
-	defer auditLogger.Close()
+	defer runLogger.Close()
 
 	// Create mock SLURM client that simulates failure
 	mockClient := NewMockSLURMClient(testDir)
@@ -405,9 +405,9 @@ func TestSLURMExecutorWithMockClient_FailedJob(t *testing.T) {
 	}
 
 	executor := &SLURMExecutor{
-		client:      mockClient,
-		config:      cfg,
-		auditLogger: auditLogger,
+		client:    mockClient,
+		config:    cfg,
+		runLogger: runLogger,
 	}
 
 	// Execute the failing job
@@ -435,19 +435,19 @@ func TestSLURMExecutorWithMockClient_FailedJob(t *testing.T) {
 		t.Errorf("Failed job stderr missing error message: %s", stderrStr)
 	}
 
-	// Verify audit log captures the failure
-	auditEntries, err := audit.ReadLogEntries(auditLogPath)
+	// Verify run log captures the failure
+	runLogEntries, err := runlog.ReadRunEntries(runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to read audit log: %v", err)
+		t.Fatalf("Failed to read run log: %v", err)
 	}
 
-	if len(auditEntries) != 1 {
-		t.Fatalf("Expected 1 audit entry, got %d", len(auditEntries))
+	if len(runLogEntries) != 1 {
+		t.Fatalf("Expected 1 run log entry, got %d", len(runLogEntries))
 	}
 
-	entry := auditEntries[0]
+	entry := runLogEntries[0]
 
-	// Verify audit captures failure details
+	// Verify run log captures failure details
 	if entry.ExitCode != 1 {
 		t.Errorf("Audit entry should record exit code 1, got %d", entry.ExitCode)
 	}
@@ -460,15 +460,15 @@ func TestSLURMExecutorWithMockClient_FailedJob(t *testing.T) {
 		t.Errorf("Audit STDERR missing failure message: %s", entry.STDERR)
 	}
 
-	t.Logf("Failed job test passed - audit captured failure with exit code %d", entry.ExitCode)
+	t.Logf("Failed job test passed - run log captured failure with exit code %d", entry.ExitCode)
 }
 
-// TestSLURMExecutorWithMockClient_AuditTrailIntegrity tests comprehensive audit trail features
+// TestSLURMExecutorWithMockClient_AuditTrailIntegrity tests comprehensive run log features
 func TestSLURMExecutorWithMockClient_AuditTrailIntegrity(t *testing.T) {
 	// Setup test environment
 	testDir := t.TempDir()
-	modelPath := filepath.Join(testDir, "audit_model.ctl")
-	auditLogPath := filepath.Join(testDir, "audit_integrity.log")
+	modelPath := filepath.Join(testDir, "runlog_model.ctl")
+	runLogPath := filepath.Join(testDir, "runlog_integrity.log")
 
 	// Create test model file
 	err := os.WriteFile(modelPath, []byte("$PROBLEM Audit Test Model\n"), 0644)
@@ -476,12 +476,12 @@ func TestSLURMExecutorWithMockClient_AuditTrailIntegrity(t *testing.T) {
 		t.Fatalf("Failed to create test model file: %v", err)
 	}
 
-	// Create audit logger
-	auditLogger, err := audit.NewLogger(true, auditLogPath)
+	// Create run logger
+	runLogger, err := runlog.NewRunLogger(true, runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to create audit logger: %v", err)
+		t.Fatalf("Failed to create run logger: %v", err)
 	}
-	defer auditLogger.Close()
+	defer runLogger.Close()
 
 	// Create mock SLURM client
 	mockClient := NewMockSLURMClient(testDir)
@@ -496,9 +496,9 @@ func TestSLURMExecutorWithMockClient_AuditTrailIntegrity(t *testing.T) {
 	}
 
 	executor := &SLURMExecutor{
-		client:      mockClient,
-		config:      cfg,
-		auditLogger: auditLogger,
+		client:    mockClient,
+		config:    cfg,
+		runLogger: runLogger,
 	}
 
 	// Execute the job
@@ -509,19 +509,19 @@ func TestSLURMExecutorWithMockClient_AuditTrailIntegrity(t *testing.T) {
 		t.Fatalf("Execute failed: %v", err)
 	}
 
-	// Read and verify comprehensive audit trail
-	auditEntries, err := audit.ReadLogEntries(auditLogPath)
+	// Read and verify comprehensive run log
+	runLogEntries, err := runlog.ReadRunEntries(runLogPath)
 	if err != nil {
-		t.Fatalf("Failed to read audit log: %v", err)
+		t.Fatalf("Failed to read run log: %v", err)
 	}
 
-	if len(auditEntries) != 1 {
-		t.Fatalf("Expected 1 audit entry, got %d", len(auditEntries))
+	if len(runLogEntries) != 1 {
+		t.Fatalf("Expected 1 run log entry, got %d", len(runLogEntries))
 	}
 
-	entry := auditEntries[0]
+	entry := runLogEntries[0]
 
-	// Verify all required audit fields are present
+	// Verify all required run log fields are present
 	tests := []struct {
 		name  string
 		value string
@@ -548,7 +548,7 @@ func TestSLURMExecutorWithMockClient_AuditTrailIntegrity(t *testing.T) {
 
 	foundModelPath := false
 	for _, arg := range entry.Arguments {
-		if strings.Contains(arg, "audit_model.ctl") {
+		if strings.Contains(arg, "runlog_model.ctl") {
 			foundModelPath = true
 			break
 		}

@@ -41,8 +41,8 @@ $COVARIANCE`
 			// Create test configuration using echo for cross-platform testing
 			cfg := &config.Config{
 				Input: config.Input{
-					NonmemPath:   "/bin",    // Use /bin directory for testing
-					NonmemBinary: "echo",   // Use echo binary for testing
+					NonmemPath:   "/bin", // Use /bin directory for testing
+					NonmemBinary: "echo", // Use echo binary for testing
 				},
 			}
 
@@ -312,11 +312,11 @@ func TestNONMEMValidationSuite(t *testing.T) {
 	reporter := GetGlobalReporter()
 	reporter.PrintSummary()
 
-	// Generate comprehensive auditor-ready report
-	if err := reporter.GenerateAuditorReport("nonmem_auditor_validation_report.json", "1.0.0", "Automated Test System"); err != nil {
-		t.Logf("Warning: Could not generate comprehensive auditor report: %v", err)
+	// Generate comprehensive run log-ready report
+	if err := reporter.GenerateAuditorReport("nonmem_run log_validation_report.json", "1.0.0", "Automated Test System"); err != nil {
+		t.Logf("Warning: Could not generate comprehensive run log report: %v", err)
 	} else {
-		t.Log("Comprehensive auditor report saved to: nonmem_auditor_validation_report.json")
+		t.Log("Comprehensive run log report saved to: nonmem_run log_validation_report.json")
 	}
 
 	// Optionally save basic technical report to file
@@ -355,24 +355,24 @@ func TestExecutionValidationSuite(t *testing.T) {
 	t.Run("REQ-08-Grid", TestREQ08_BBIGridExecution)
 	t.Run("REQ-07-Combined", TestREQ07_BBICombinedOptions)
 
-	// Run audit compliance validation tests (REQ-41 through REQ-46)
-	t.Run("REQ-41", TestREQ41_JSONAuditTrailEnablement)
-	t.Run("REQ-42", TestREQ42_JobIDAuditLogging)
-	t.Run("REQ-43", TestREQ43_STDOUTAuditCapture)
-	t.Run("REQ-44", TestREQ44_STDERRAuditCapture)
-	t.Run("REQ-45", TestREQ45_BinaryPathAuditLogging)
-	t.Run("REQ-46", TestREQ46_CommandArgumentsAuditLogging)
-	t.Run("REQ-41-FileWrite", TestAuditLogFileWrite)
+	// Run run log compliance validation tests (REQ-41 through REQ-46)
+	t.Run("REQ-41", TestREQ41_JSONRunLogEnablement)
+	t.Run("REQ-42", TestREQ42_JobIDRunLogging)
+	t.Run("REQ-43", TestREQ43_STDOUTCapture)
+	t.Run("REQ-44", TestREQ44_STDERRCapture)
+	t.Run("REQ-45", TestREQ45_BinaryPathLogging)
+	t.Run("REQ-46", TestREQ46_CommandArgumentsLogging)
+	t.Run("REQ-41-FileWrite", TestRunLogFileWrite)
 
 	// Generate validation report
 	reporter := GetGlobalReporter()
 	reporter.PrintSummary()
 
-	// Generate comprehensive auditor-ready report
-	if err := reporter.GenerateAuditorReport("execution_auditor_validation_report.json", "1.0.0", "Automated Test System"); err != nil {
-		t.Logf("Warning: Could not generate comprehensive auditor report: %v", err)
+	// Generate comprehensive run log-ready report
+	if err := reporter.GenerateAuditorReport("execution_run log_validation_report.json", "1.0.0", "Automated Test System"); err != nil {
+		t.Logf("Warning: Could not generate comprehensive run log report: %v", err)
 	} else {
-		t.Log("Comprehensive auditor report saved to: execution_auditor_validation_report.json")
+		t.Log("Comprehensive run log report saved to: execution_run log_validation_report.json")
 	}
 
 	// Save detailed technical report to file
@@ -414,31 +414,31 @@ func TestConfigurationValidationSuite(t *testing.T) {
 	t.Log("=== CONFIGURATION VALIDATION SUITE COMPLETE ===")
 }
 
-// TestAuditComplianceValidationSuite runs all audit compliance validation tests as a suite.
-func TestAuditComplianceValidationSuite(t *testing.T) {
+// TestRunLogComplianceValidationSuite runs all run log compliance validation tests as a suite.
+func TestRunLogComplianceValidationSuite(t *testing.T) {
 	t.Log("=== STARTING AUDIT COMPLIANCE VALIDATION SUITE ===")
 
 	// Reset the global reporter for this suite
 	ResetGlobalReporter()
 
-	// Run audit compliance validation tests (REQ-41 through REQ-46)
-	t.Run("REQ-41", TestREQ41_JSONAuditTrailEnablement)
-	t.Run("REQ-42", TestREQ42_JobIDAuditLogging)
-	t.Run("REQ-43", TestREQ43_STDOUTAuditCapture)
-	t.Run("REQ-44", TestREQ44_STDERRAuditCapture)
-	t.Run("REQ-45", TestREQ45_BinaryPathAuditLogging)
-	t.Run("REQ-46", TestREQ46_CommandArgumentsAuditLogging)
-	t.Run("REQ-41-FileWrite", TestAuditLogFileWrite)
+	// Run run log compliance validation tests (REQ-41 through REQ-46)
+	t.Run("REQ-41", TestREQ41_JSONRunLogEnablement)
+	t.Run("REQ-42", TestREQ42_JobIDRunLogging)
+	t.Run("REQ-43", TestREQ43_STDOUTCapture)
+	t.Run("REQ-44", TestREQ44_STDERRCapture)
+	t.Run("REQ-45", TestREQ45_BinaryPathLogging)
+	t.Run("REQ-46", TestREQ46_CommandArgumentsLogging)
+	t.Run("REQ-41-FileWrite", TestRunLogFileWrite)
 
 	// Generate validation report
 	reporter := GetGlobalReporter()
 	reporter.PrintSummary()
 
 	// Save detailed report to file
-	if err := reporter.GenerateReport("audit_compliance_validation_report.json"); err != nil {
+	if err := reporter.GenerateReport("runlog_compliance_validation_report.json"); err != nil {
 		t.Logf("Warning: Could not generate validation report: %v", err)
 	} else {
-		t.Log("Validation report saved to: audit_compliance_validation_report.json")
+		t.Log("Validation report saved to: runlog_compliance_validation_report.json")
 	}
 
 	t.Log("=== AUDIT COMPLIANCE VALIDATION SUITE COMPLETE ===")

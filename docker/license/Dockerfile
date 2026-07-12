@@ -3,6 +3,10 @@
 # Build stage
 FROM golang:alpine AS builder
 
+# Accept build arguments for GitHub authentication
+ARG GITHUB_TOKEN
+ARG GOPRIVATE=github.com/pharmalytica/hermes
+
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates tzdata
 
@@ -10,6 +14,13 @@ WORKDIR /build
 
 # Set GOTOOLCHAIN to auto to allow Go to download the required version
 ENV GOTOOLCHAIN=auto
+
+# Configure Git to use GitHub token for private repos
+RUN git config --global url."https://${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/" && \
+    git config --global advice.detachedHead false
+
+# Set GOPRIVATE for private module handling
+ENV GOPRIVATE=${GOPRIVATE}
 
 # Copy go mod files
 COPY go.mod go.sum ./

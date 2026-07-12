@@ -51,26 +51,26 @@ type SubmitOptions struct {
 
 // JobInfo represents information about a submitted job.
 type JobInfo struct {
-	JobID       string `json:"job_id"`
-	JobName     string `json:"job_name,omitempty"`
-	State       string `json:"state"`
-	SubmitTime  string `json:"submit_time,omitempty"`
-	StartTime   string `json:"start_time,omitempty"`
-	EndTime     string `json:"end_time,omitempty"`
-	ExitCode    int    `json:"exit_code,omitempty"`
-	Partition   string `json:"partition,omitempty"`
-	WorkingDir  string `json:"working_dir,omitempty"`
+	JobID      string `json:"job_id"`
+	JobName    string `json:"job_name,omitempty"`
+	State      string `json:"state"`
+	SubmitTime string `json:"submit_time,omitempty"`
+	StartTime  string `json:"start_time,omitempty"`
+	EndTime    string `json:"end_time,omitempty"`
+	ExitCode   int    `json:"exit_code,omitempty"`
+	Partition  string `json:"partition,omitempty"`
+	WorkingDir string `json:"working_dir,omitempty"`
 }
 
 // JobStatus represents the current status of a job.
 type JobStatus struct {
-	JobID      string `json:"job_id"`
-	State      string `json:"state"`
-	ExitCode   int    `json:"exit_code,omitempty"`
-	StartTime  string `json:"start_time,omitempty"`
-	EndTime    string `json:"end_time,omitempty"`
-	RunTime    string `json:"run_time,omitempty"`
-	Reason     string `json:"reason,omitempty"`
+	JobID     string `json:"job_id"`
+	State     string `json:"state"`
+	ExitCode  int    `json:"exit_code,omitempty"`
+	StartTime string `json:"start_time,omitempty"`
+	EndTime   string `json:"end_time,omitempty"`
+	RunTime   string `json:"run_time,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // JobOutput represents the output of a completed job.
@@ -165,10 +165,10 @@ func NewRESTClient(cfg config.SLURMRESTConfig) (*RESTClient, error) {
 func (c *RESTClient) SubmitJob(ctx context.Context, jobScript string, options SubmitOptions) (*JobInfo, error) {
 	// Construct job submission request
 	job := map[string]interface{}{
-		"name":         options.JobName,
+		"name":                      options.JobName,
 		"current_working_directory": options.WorkingDir,
-		"standard_output": options.OutputFile,
-		"standard_error":  options.ErrorFile,
+		"standard_output":           options.OutputFile,
+		"standard_error":            options.ErrorFile,
 	}
 
 	// Only add partition if it's not empty
@@ -258,9 +258,9 @@ func (c *RESTClient) SubmitJob(ctx context.Context, jobScript string, options Su
 	}
 
 	return &JobInfo{
-		JobID:    jobID,
-		JobName:  options.JobName,
-		State:    "PENDING",
+		JobID:      jobID,
+		JobName:    options.JobName,
+		State:      "PENDING",
 		WorkingDir: options.WorkingDir,
 	}, nil
 }

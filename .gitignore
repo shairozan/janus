@@ -91,7 +91,11 @@ core
 **/*.pnm
 
 # Claude
-.claude
+# Local Claude config stays out of the repo, but shared workflows are project
+# assets and must be version-controlled — a workflow that lives only in a session
+# scratch directory cannot be revised, only re-run.
+.claude/*
+!.claude/workflows/
 
 # Goreleaser artifacts
 dist

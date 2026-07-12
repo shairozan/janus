@@ -1,0 +1,60 @@
+# syntax=docker/dockerfile:1
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Build-your-own NONMEM image for Janus / Hermes execution
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Pharmalytica CANNOT distribute images containing NONMEM (it is licensed
+# software you must obtain and license yourself). Instead, this template lets you
+# build your OWN Hermes-compatible NONMEM image and push it to YOUR OWN registry.
+#
+# How it works:
+#   * The Hermes base image (below) provides the gRPC execution server that Janus
+#     talks to on port 50051. It is Debian (trixie) based. If that base is fine
+#     for you, just extend it and drop your licensed NONMEM install on top.
+#   * The LABELs at the bottom make the finished image appear automatically in the
+#     Janus "Hermes Config" image selector (see build-your-own-image.md).
+#
+# Quick start:
+#   1. Place your licensed NONMEM installation tree in ./nonmem (next to this file).
+#   2. docker build -f Dockerfile.nonmem.template -t my.registry/nonmem:7.5.1 .
+#   3. docker push my.registry/nonmem:7.5.1
+#   4. Reference it from .janus.config.json (see build-your-own-image.md).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# The Hermes base provides the execution server Janus communicates with.
+# Pin to a specific tag/digest for reproducible builds.
+FROM ghcr.io/pharmalytica/hermes:main-trixie
+
+# The base image runs as the unprivileged "hermes" user; switch to root to install.
+USER root
+
+# 1. Install your licensed NONMEM build.
+#    NONMEM and its license are NOT provided here — supply your own. Copy your
+#    installation tree into the image. Adjust the source path/layout as needed.
+COPY nonmem/ /opt/NONMEM/
+
+# 2. Make the run script executable on the path Janus will invoke.
+#    Adjust nm75/nmfe75 to match your NONMEM version (e.g. nm74/nmfe74).
+RUN chmod +x /opt/NONMEM/nm75/run/nmfe75
+
+# Drop back to the runtime user.
+USER hermes
+
+# 3. Discovery + execution labels.
+#    type=executor and platform=nonmem are REQUIRED for Janus to auto-discover
+#    this image. container_command auto-fills the command path in the Hermes
+#    config dialog. The remaining labels populate the selector UI.
+LABEL io.pharmalytica.janus.type="executor" \
+      io.pharmalytica.janus.platform="nonmem" \
+      io.pharmalytica.janus.display-name="NONMEM 7.5.1 (self-built)" \
+      io.pharmalytica.janus.description="Self-built NONMEM 7.5.1 image" \
+      io.pharmalytica.janus.version="0.0.1" \
+      io.pharmalytica.janus.min-janus-version="0.0.12" \
+      io.pharmalytica.janus.container_command="/opt/NONMEM/nm75/run/nmfe75" \
+      io.pharmalytica.nonmem.version="7.5.1" \
+      io.pharmalytica.nonmem.compiler="gfortran" \
+      io.pharmalytica.nonmem.compiler-version="9.4.0"
+
+# Hermes serves on 50051 (inherited from the base image's default command).
+EXPOSE 50051

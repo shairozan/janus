@@ -1,0 +1,43 @@
+# Hermetic Playwright e2e for the portal, containerized.
+#
+# The portal's Ubuntu 26.04 host can't install Playwright's browsers, so we run
+# the suite inside the official Playwright image (Ubuntu 24.04 "noble", browsers
+# preinstalled, pinned to our @playwright/test version). Everything is hermetic:
+# Playwright's webServer boots the in-memory mock license-server AND the portal
+# inside this one container — no database, no AWS/Stripe/Mailgun. This is the
+# exact behavior the GitHub Actions workflow (.github/workflows/portal-e2e.yml)
+# runs natively on its Ubuntu runner.
+#
+# Usage (from web/portal/):
+#   docker compose -f docker-compose.e2e.yml run --rm e2e
+#
+# The HTML report lands in ./playwright-report on the host (bind mount).
+
+services:
+  e2e:
+    image: mcr.microsoft.com/playwright:v1.60.0-noble
+    working_dir: /work
+    volumes:
+      - ./:/work
+      # Mask host build/dependency artifacts with container-local volumes so a
+      # host install (different OS) never leaks in; deps are installed fresh.
+      - portal_node_modules:/work/node_modules
+      - portal_next:/work/.next
+    environment:
+      CI: "1"
+      MOCK_PORT: "4319"
+      # Keep pnpm's content-addressable store inside the masked node_modules
+      # volume so the bind mount never leaves root-owned files on the host.
+      npm_config_store_dir: /work/node_modules/.pnpm-store
+    command:
+      - bash
+      - -lc
+      - |
+        set -e
+        corepack enable
+        pnpm install --frozen-lockfile
+        pnpm exec playwright test
+
+volumes:
+  portal_node_modules:
+  portal_next:

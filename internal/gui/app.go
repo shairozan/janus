@@ -4,15 +4,18 @@ import (
 	"archive/zip"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -21,25 +24,39 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/pharmalytica/janus/internal/audit"
+	"github.com/pharmalytica/janus/internal/appsetup"
+	"github.com/pharmalytica/janus/internal/comparison"
 	"github.com/pharmalytica/janus/internal/config"
 	"github.com/pharmalytica/janus/internal/execution"
+	"github.com/pharmalytica/janus/internal/execution/category"
+	"github.com/pharmalytica/janus/internal/gui/editor"
 	"github.com/pharmalytica/janus/internal/license/validator"
+	"github.com/pharmalytica/janus/internal/mcp"
+	"github.com/pharmalytica/janus/internal/mcpservice"
+	"github.com/pharmalytica/janus/internal/model"
+	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/pharmalytica/janus/internal/visualization"
 )
 
 type App struct {
-	fyneApp             fyne.App
-	window              fyne.Window
-	settingsOpen        bool
-	needsRunDetailsTab  bool
-	pendingModelPath    string
-	config              *config.Config
-	licenseClaims       *validator.Claims
+	fyneApp            fyne.App
+	window             fyne.Window
+	settingsOpen       bool
+	needsRunDetailsTab bool
+	pendingModelPath   string
+	config             *config.Config
+	licenseClaims      *validator.Claims
 
 	// Current loaded file
 	currentFilePath string
 	fileContent     string
 	fileHash        [32]byte
+
+	// Model category and license state (for multi-modal support)
+	currentModelCategory   category.CategoryType
+	modelingLicenseFound   bool
+	modelingLicenseMessage string
 
 	// File watching
 	watchCtx    context.Context //nolint:containedctx // Long-lived app context for file watching
@@ -58,28 +75,63 @@ type App struct {
 	coresContainer         *fyne.Container
 	nonmemOptionsEntry     *widget.Entry
 	nonmemOptionsContainer *fyne.Container
+	versionSelect          *widget.Select // per-run NONMEM installation picker
+	versionContainer       *fyne.Container
+	psnPresetSelect        *widget.Select // PSN analysis preset (execute / vpc / bootstrap / …)
+	psnPresetContainer     *fyne.Container
+	psnForm                *psnFunctionForm // per-function argument controls
+	runRemote              bool             // true when the current run targets SSH (direct remote)
 	descriptionCheck       *widget.Check
-	runHereBtn             *widget.Button
-	runGridBtn             *widget.Button
-	textEditor             *widget.Entry
+	runBtn                 *widget.Button     // single Run button
+	targetRadio            *widget.RadioGroup // Here / Scheduler / SSH
+	hermesConfigBtn        *widget.Button
+	retainInfoBox          *fyne.Container // read-only "retained files" summary for the current model (Hermes mode)
+	retainGlobsLabel       *widget.Label
+	commandPreview         *widget.Label     // live read-only preview of the command to run
+	textEditor             *widget.Entry     // Legacy - will be replaced with nonmemEditor
+	nonmemEditor           fyne.CanvasObject // Custom NONMEM syntax-highlighting editor
 	modelSubTabs           *container.AppTabs
 	saveBtn                *widget.Button
 
 	// Run details components
-	runDetailsTab   *container.TabItem
-	outputTabs      *container.AppTabs
-	stdoutDisplay   *widget.Entry
-	stderrDisplay   *widget.Entry
-	runHistoryTable *widget.Table
-	runHistory      *audit.RunHistory
+	runDetailsTab       *container.TabItem
+	outputTabs          *container.AppTabs
+	stdoutDisplay       *widget.Entry
+	stderrDisplay       *widget.Entry
+	parametersContainer *fyne.Container
+	runHistoryTable     *widget.Table
+	runLogStore         *runlog.RunLogStore
+	cachedRuns          []runlog.RunRecord // Local cache of runs for table display
+
+	// Run comparison components
+	selectedRunsForCompare map[string]bool // Run IDs selected for comparison
+	compareButton          *widget.Button  // "Compare Selected" button
+	compareButtonContainer *fyne.Container // Container to show/hide compare button
+
+	// Run visualization components
+	visualizeButton *widget.Button // "Visualize Selected" button
+
+	// Single-run diagnostics
+	selectedRun             *runlog.RunRecord // Currently selected run for display
+	diagnosticsButton       *widget.Button    // "View GOF Plots" button for single-run diagnostics
+	inheritParametersButton *widget.Button    // "Inherit Parameters" button for parameter inheritance
 
 	// Active runs tracking
-	activeRuns        map[int]context.CancelFunc         // runID -> cancel function
-	activeStreams     map[int]*execution.StreamingOutput // runID -> streaming output
-	liveOutputWindows map[int]fyne.Window                // runID -> live output window
+	activeRuns        map[string]context.CancelFunc         // runID -> cancel function
+	activeStreams     map[string]*execution.StreamingOutput // runID -> streaming output
+	liveOutputWindows map[string]fyne.Window                // runID -> live output window
 	activeRunsTable   *widget.Table
 	mainLayout        *fyne.Container
-	updateTicker      *time.Ticker
+	activeRunsArea    *fyne.Container // persistent bottom slot for the active-runs / saga card
+
+	// Live bootstrap-saga progress, keyed by run ID: published by the saga as it
+	// runs and read by the active-runs display to render the progress card.
+	// sagaMu guards the map.
+	sagaProgress map[string]execution.SagaProgress
+	sagaMu       sync.Mutex
+	mainTabs     *container.AppTabs // top-level tabs (Model Run, Models)
+	modelBrowser *modelBrowser      // "Models" tab state
+	updateTicker *time.Ticker
 
 	// SLURM monitoring
 	slurmMonitor *SLURMMonitor
@@ -87,6 +139,20 @@ type App struct {
 	// Dialog tracking
 	cancelJobDialog *widget.PopUp
 	errorDialog     *widget.PopUp
+
+	// Run log signing (nil if signing not configured)
+	signer *signing.Signer
+
+	// modelMu guards currentFilePath and runLogStore against concurrent access
+	// from MCP HTTP goroutines while the UI thread reassigns them in LoadModelFile.
+	modelMu sync.Mutex
+
+	// MCP server (nil unless enabled). ephemeralResolver builds/caches run-log
+	// stores for models other than the currently-loaded one; it is shared with
+	// the fyne-free mcpservice that backs both the GUI and the daemon.
+	mcpMu             sync.Mutex
+	mcpServer         *mcp.Server
+	ephemeralResolver *mcpservice.EphemeralResolver
 }
 
 func NewApp(ctx context.Context) *App {
@@ -94,26 +160,22 @@ func NewApp(ctx context.Context) *App {
 	window := fyneApp.NewWindow("Janus")
 	window.Resize(fyne.NewSize(1200, 800))
 
-	// Initialize empty run history (will be set when model is loaded)
-	runHistory := &audit.RunHistory{
-		Runs:        []audit.RunRecord{},
-		HistoryFile: "", // Will be set when model is loaded
-	}
-
 	// Create error handling context and channel
 	errorCtx, errorCancel := context.WithCancel(ctx)
 	errorCh := make(chan error, 100) // Buffered channel for async errors
 
 	app := &App{
-		fyneApp:           fyneApp,
-		window:            window,
-		runHistory:        runHistory,
-		errorCh:           errorCh,
-		errorCtx:          errorCtx,
-		errorCancel:       errorCancel,
-		activeRuns:        make(map[int]context.CancelFunc),
-		activeStreams:     make(map[int]*execution.StreamingOutput),
-		liveOutputWindows: make(map[int]fyne.Window),
+		fyneApp:                fyneApp,
+		window:                 window,
+		cachedRuns:             []runlog.RunRecord{},
+		errorCh:                errorCh,
+		errorCtx:               errorCtx,
+		errorCancel:            errorCancel,
+		activeRuns:             make(map[string]context.CancelFunc),
+		sagaProgress:           make(map[string]execution.SagaProgress),
+		activeStreams:          make(map[string]*execution.StreamingOutput),
+		liveOutputWindows:      make(map[string]fyne.Window),
+		selectedRunsForCompare: make(map[string]bool),
 	}
 
 	// Start error handling goroutine
@@ -133,6 +195,40 @@ func (a *App) SetConfiguration(cfg *config.Config) {
 
 	// Set up SLURM monitoring if configuration supports it
 	a.setupSLURMMonitoring()
+
+	// Initialize run log signer if signing is configured
+	a.initSigner()
+
+	// One-shot startup belt: clear any Hermes pods orphaned by a previously killed
+	// run. Called once at startup (both the wizard and normal paths land here;
+	// settings saves use reloadAppConfig instead), so it never fires mid-run.
+	a.sweepOrphanedHermesPodsAsync()
+}
+
+// sweepOrphanedHermesPodsAsync fires a one-shot, best-effort background sweep of
+// any Janus Hermes pods orphaned in the configured Kubernetes namespace. It is
+// gated on a configured namespace, runs off the UI thread, and only logs — a
+// failure (e.g. the cluster is unreachable) must never block startup.
+func (a *App) sweepOrphanedHermesPodsAsync() {
+	if a.config == nil || strings.TrimSpace(a.config.Hermes.Kubernetes.Namespace) == "" {
+		return
+	}
+
+	cfg := a.config
+	namespace := cfg.Hermes.Kubernetes.Namespace
+
+	go func() {
+		ctx, cancel := context.WithTimeout(a.errorCtx, 60*time.Second)
+		defer cancel()
+
+		if err := execution.SweepOrphanedHermesPods(ctx, cfg); err != nil {
+			log.Printf("Startup Hermes pod sweep failed (continuing): %v", err)
+
+			return
+		}
+
+		log.Printf("Startup Hermes pod sweep complete (namespace %q)", namespace)
+	}()
 }
 
 // SetLicenseClaims stores the validated license claims for feature gating.
@@ -147,6 +243,99 @@ func (a *App) HasFeature(feature string) bool {
 	}
 
 	return a.licenseClaims.HasFeature(feature)
+}
+
+// initSigner initializes the run log signer if signing is configured.
+// This should be called after SetConfiguration and SetLicenseClaims.
+func (a *App) initSigner() {
+	// Reset existing signer and the resolver that captured it.
+	a.signer = nil
+	a.ephemeralResolver = nil
+
+	signer, err := appsetup.BuildSigner(a.config, a.licenseClaims)
+	if err != nil {
+		log.Printf("ERROR: run log signing setup failed: %v", err)
+		// Surface compliance/signing failures to the user.
+		if a.window != nil {
+			dialog.ShowError(fmt.Errorf("CFR 21 Part 11 compliance error: %w", err), a.window)
+		}
+
+		return
+	}
+
+	a.signer = signer
+
+	if signer != nil {
+		log.Printf("Run log signing enabled")
+	}
+}
+
+// checkModelingLicense checks if the required modeling software license exists for the given category.
+// This does not validate the license contents, just verifies it exists at one of the expected locations.
+func (a *App) checkModelingLicense(cat category.CategoryType) (bool, string) {
+	switch cat {
+	case category.CategoryNONMEM:
+		// If execution mode requires NONMEM license, check using consistent logic
+		if a.config != nil && config.RequiresNONMEMLicense(a.config.ExecutionMode) {
+			licensePath, err := config.ValidateNONMEMLicenseForExecution(a.config)
+			if err != nil {
+				return false, err.Error()
+			}
+
+			return true, fmt.Sprintf("NONMEM license found at: %s", licensePath)
+		}
+
+		// For non-NONMEM execution modes with NONMEM models, check default locations
+		locations := []string{}
+
+		// Priority 1: ~/nonmem.lic
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			locations = append(locations, filepath.Join(homeDir, "nonmem.lic"))
+		}
+
+		// Priority 2: ./nonmem.lic
+		locations = append(locations, "nonmem.lic")
+
+		for _, loc := range locations {
+			if _, err := os.Stat(loc); err == nil {
+				return true, fmt.Sprintf("NONMEM license found at: %s", loc)
+			}
+		}
+
+		return false, "NONMEM license not found. Please place nonmem.lic in your home directory or configure the path in settings."
+
+	case category.CategoryMonolix:
+		// Monolix license check would go here when implemented
+		// For now, assume Monolix doesn't require a separate license file
+		return true, "Monolix execution ready"
+
+	case category.CategoryStan, category.CategoryTorsten:
+		// Stan/Torsten don't require software licenses
+		return true, "Stan/Torsten execution ready"
+
+	case category.CategoryUnknown:
+		// Unknown models can't be executed
+		return false, "Unknown model type - cannot determine execution requirements"
+
+	default:
+		return true, ""
+	}
+}
+
+// updateRunButtonState updates the run button styling based on license availability.
+func (a *App) updateRunButtonState() {
+	if a.runBtn == nil {
+		return
+	}
+
+	if !a.modelingLicenseFound && a.currentModelCategory != "" {
+		// License missing - show warning state
+		a.runBtn.Importance = widget.DangerImportance
+	} else {
+		// License found or no model loaded - normal state
+		a.runBtn.Importance = widget.HighImportance
+	}
+	a.runBtn.Refresh()
 }
 
 // ShowLicenseError displays a license validation error and exits the application.
@@ -217,9 +406,24 @@ func (a *App) startActiveRunsUpdater() {
 				// Context cancelled, stop updating
 				return
 			case <-a.updateTicker.C:
-				// Only update if there are active runs
-				if len(a.activeRuns) > 0 && a.activeRunsTable != nil {
-					a.activeRunsTable.Refresh()
+				// Only update if there are active runs (UI refresh must be on main thread).
+				if len(a.activeRuns) == 0 {
+					continue
+				}
+
+				a.sagaMu.Lock()
+				sagaActive := len(a.sagaProgress) > 0
+				a.sagaMu.Unlock()
+
+				// A running saga needs a full rebuild so its progress card picks up
+				// the latest snapshot (stage, k/N, live pods); a plain run only needs
+				// the table's elapsed column refreshed.
+				if sagaActive {
+					a.updateActiveRunsDisplay()
+				} else if a.activeRunsTable != nil {
+					fyne.Do(func() {
+						a.activeRunsTable.Refresh()
+					})
 				}
 			}
 		}
@@ -228,6 +432,12 @@ func (a *App) startActiveRunsUpdater() {
 
 // Cleanup should be called when the app is shutting down.
 func (a *App) Cleanup() {
+	// Stop the MCP server first: its handlers touch app state (run-log stores,
+	// execution), so it must be quiesced before the error channel closes.
+	if err := a.StopMCPServer(); err != nil {
+		log.Printf("Warning: failed to stop MCP server cleanly: %v", err)
+	}
+
 	// Stop SLURM monitoring
 	a.stopSLURMMonitoring()
 
@@ -249,26 +459,25 @@ func (a *App) Cleanup() {
 	// Cancel any active runs
 	for runID, cancel := range a.activeRuns {
 		cancel()
-		a.updateRunRecord(runID, -1, "", "Run cancelled due to application shutdown")
+		a.updateRunRecord(runID, -1, "", "Run cancelled due to application shutdown", nil)
 	}
 
 	// Clear active runs map
-	a.activeRuns = make(map[int]context.CancelFunc)
+	a.activeRuns = make(map[string]context.CancelFunc)
 
 	// Close error channel
 	close(a.errorCh)
 }
 
-// getNextRunID calculates the next available run ID by finding the highest existing ID and adding 1.
-func (a *App) getNextRunID() int {
-	maxID := 0
-	for _, run := range a.runHistory.Runs {
-		if run.ID > maxID {
-			maxID = run.ID
-		}
+// shortRunID returns a shortened version of a run ID for display purposes.
+// Shows the last 6 characters of the UUID for better uniqueness.
+// UUIDv7 has timestamp-based prefix, so the suffix is more distinctive.
+func shortRunID(id string) string {
+	if len(id) >= 6 {
+		return id[len(id)-6:]
 	}
 
-	return maxID + 1
+	return id
 }
 
 // GetFyneApp returns the underlying fyne application.
@@ -334,35 +543,62 @@ func (a *App) buildMainInterface() fyne.CanvasObject {
 		settingsBtn, // Right: settings button
 	)
 
-	// Main horizontal tabs (Model Run only for now)
+	// Main horizontal tabs. "Model Run" stays the default landing tab; "Models"
+	// is the per-directory model browser.
 	mainTabs := container.NewAppTabs(
 		container.NewTabItem("Model Run", a.buildModelRunTab()),
+		container.NewTabItem("Models", a.buildModelBrowserTab()),
 	)
+	a.mainTabs = mainTabs
 
-	// Top section contains top bar and main tabs
-	topSection := container.NewVBox(topBar, mainTabs)
+	// Re-scan the model browser each time the Models tab is opened so status,
+	// run counts, and OFV reflect the latest runs.
+	mainTabs.OnSelected = func(item *container.TabItem) {
+		if item.Text == "Models" && a.modelBrowser != nil {
+			a.modelBrowser.refresh()
+		}
+	}
 
-	// Conditionally add grid details if licensed for "grid" feature
-	if a.HasFeature("grid") {
+	// Conditionally add grid details if licensed for "grid" feature AND scheduler is available
+	showGridDetails := false
+	if a.HasFeature("grid") && a.config != nil && a.config.Scheduler == "SLURM" {
+		// Check if SLURM is actually available on the system
+		if IsSLURMAvailable() {
+			showGridDetails = true
+		} else {
+			log.Printf("SLURM scheduler configured but not available on system - hiding grid details panel")
+		}
+	}
+
+	// Persistent bottom slot for active runs (and the live saga progress card). It
+	// lives in the main layout's Bottom so it shows across tabs (e.g. while on the
+	// run log) and never overlaps the tab bar. updateActiveRunsDisplay repopulates
+	// it rather than appending to the Border, which can't place extra children.
+	a.activeRunsArea = container.NewVBox()
+
+	if showGridDetails {
 		// Bottom grid details section
 		gridDetails := a.buildGridDetails()
 
-		// Main layout: Use border layout to give grid details more space
+		// Use VSplit to divide space between main tabs and grid details
+		splitContent := container.NewVSplit(mainTabs, gridDetails)
+		splitContent.SetOffset(0.7) // 70% for main tabs, 30% for grid details
+
 		a.mainLayout = container.NewBorder(
-			topSection, // Top - takes minimum needed space
-			nil,        // Bottom
-			nil,        // Left
-			nil,        // Right
-			gridDetails, // Center - takes all remaining space
+			topBar,           // Top - just the top bar
+			a.activeRunsArea, // Bottom - active runs / saga progress card
+			nil,              // Left
+			nil,              // Right
+			splitContent,     // Center - split between tabs and grid, expands to fill
 		)
 	} else {
 		// No grid details - main tabs take full space
 		a.mainLayout = container.NewBorder(
-			topSection, // Top - takes minimum needed space
-			nil,        // Bottom
-			nil,        // Left
-			nil,        // Right
-			nil, // Center - empty
+			topBar,           // Top - just the top bar
+			a.activeRunsArea, // Bottom - active runs / saga progress card
+			nil,              // Left
+			nil,              // Right
+			mainTabs,         // Center - tabs expand to fill all available space
 		)
 	}
 
@@ -437,6 +673,7 @@ func (a *App) buildModelContent() fyne.CanvasObject {
 	// Execution mode
 	a.syncRadio = widget.NewRadioGroup([]string{"Synchronous", "Parallel"}, func(selected string) {
 		a.updateCoresVisibility(selected == "Parallel")
+		a.refreshCommandPreview()
 	})
 	a.syncRadio.SetSelected("Synchronous")
 
@@ -448,6 +685,7 @@ func (a *App) buildModelContent() fyne.CanvasObject {
 	// Add validation on text change for immediate feedback
 	a.coresEntry.OnChanged = func(text string) {
 		a.validateCoresInputSilent(text)
+		a.refreshCommandPreview()
 	}
 
 	// Create increment/decrement buttons
@@ -467,6 +705,7 @@ func (a *App) buildModelContent() fyne.CanvasObject {
 	a.nonmemOptionsEntry = widget.NewEntry()
 	a.nonmemOptionsEntry.SetPlaceHolder("Additional NONMEM options (e.g., -maxeval=9999 -files=100)")
 	a.nonmemOptionsEntry.MultiLine = false
+	a.nonmemOptionsEntry.OnChanged = func(string) { a.refreshCommandPreview() }
 
 	nonmemOptionsLabel := widget.NewLabel("Additional NONMEM Options:")
 	a.nonmemOptionsContainer = container.NewVBox(nonmemOptionsLabel, a.nonmemOptionsEntry)
@@ -477,22 +716,75 @@ func (a *App) buildModelContent() fyne.CanvasObject {
 		a.nonmemOptionsContainer.Show()
 	}
 
-	// Optional description checkbox for audit trail
-	a.descriptionCheck = widget.NewCheck("Record message for audit trail", nil)
+	// Per-run NONMEM installation/version picker (only when multiple
+	// installations are configured, for NONMEM-style modes).
+	a.versionSelect = widget.NewSelect(nil, func(string) { a.refreshCommandPreview() })
+	a.versionContainer = container.NewVBox(widget.NewLabel("NONMEM Version:"), a.versionSelect)
+	a.refreshVersionSelect()
 
-	// Action buttons
-	a.runHereBtn = widget.NewButton("Run Here", func() {
-		a.executeRun(false) // local execution
+	// PSN analysis preset picker + per-function parameter form (only in PSN mode).
+	a.psnForm = newPSNFunctionForm()
+	a.psnForm.onChanged = a.refreshCommandPreview
+	a.psnPresetSelect = widget.NewSelect(nil, func(string) {
+		a.psnForm.show(a.selectedPSNFunction())
+		a.refreshCommandPreview()
 	})
-	a.runHereBtn.Importance = widget.HighImportance
+	a.psnPresetContainer = container.NewVBox(widget.NewLabel("PSN Analysis:"), a.psnPresetSelect)
+	a.refreshPSNPresets()
 
-	a.runGridBtn = widget.NewButton("Run on Grid", func() {
-		a.showGridConfigurationModal() // Show grid configuration modal
+	// Optional description checkbox for run log
+	a.descriptionCheck = widget.NewCheck("Record message in run log", nil)
+
+	// Execution target: Here (local) / Scheduler (grid) / SSH (remote-direct).
+	// Options are gated by execution mode + remote config in refreshTargetOptions.
+	a.targetRadio = widget.NewRadioGroup([]string{"Here"}, func(string) { a.refreshCommandPreview() })
+	a.targetRadio.Horizontal = true
+	a.targetRadio.SetSelected("Here")
+
+	// Live, read-only preview of the command that will be run/logged, assembled
+	// from the current engine, target, and run options. Mirrors what
+	// createRunRecord records.
+	a.commandPreview = widget.NewLabel("(load a model to preview the command)")
+	a.commandPreview.Wrapping = fyne.TextWrapWord
+	a.commandPreview.TextStyle = fyne.TextStyle{Monospace: true}
+	commandPreviewBox := container.NewVBox(
+		widget.NewLabelWithStyle("Command preview:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		a.commandPreview,
+	)
+
+	a.runBtn = widget.NewButton("Run", func() {
+		a.onRunClicked()
 	})
+	a.runBtn.Importance = widget.HighImportance
+
+	// Hermes config button for execution panel
+	a.hermesConfigBtn = widget.NewButton("⚙️ Hermes Config", func() {
+		a.showEditHermesConfigDialog()
+	})
+
+	// Summary of the current model's output files of interest — the files
+	// collected after a run and embedded in the run log (its own retain, else the
+	// inherited global/category default). Retain is a model-wide property, so this
+	// is shown for any loaded model, with an Edit button to change it in place.
+	a.retainGlobsLabel = widget.NewLabel("")
+	a.retainGlobsLabel.Wrapping = fyne.TextWrapWord
+	retainEditBtn := widget.NewButton("Edit", func() {
+		a.showEditRetainDialog()
+	})
+	a.retainInfoBox = container.NewVBox(
+		widget.NewSeparator(),
+		container.NewBorder(nil, nil,
+			widget.NewLabelWithStyle("Output files of interest", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+			retainEditBtn,
+		),
+		a.retainGlobsLabel,
+	)
+	a.retainInfoBox.Hide()
 
 	// Initially disable all components since no model is loaded yet
 	// This must happen after button creation but before pending model loading
 	a.setModelLoaded(false)
+	a.refreshTargetOptions()
 
 	leftPanel := container.NewVBox(
 		loadModelBox,
@@ -503,10 +795,18 @@ func (a *App) buildModelContent() fyne.CanvasObject {
 		a.coresContainer,
 		widget.NewSeparator(),
 		a.nonmemOptionsContainer,
+		a.versionContainer,
+		a.psnPresetContainer,
+		a.psnForm.widget(),
 		widget.NewSeparator(),
 		a.descriptionCheck,
 		widget.NewSeparator(),
-		container.NewHBox(a.runHereBtn, a.runGridBtn),
+		widget.NewLabel("Target:"),
+		a.targetRadio,
+		widget.NewSeparator(),
+		commandPreviewBox,
+		container.NewHBox(a.runBtn, a.hermesConfigBtn),
+		a.retainInfoBox,
 	)
 
 	// Right side: Text editor with toolbar
@@ -547,20 +847,56 @@ func (a *App) buildTextEditor() fyne.CanvasObject {
 		widget.NewButton("↷", func() {}), // Redo
 	)
 
-	// Large text editor - store reference for enabling/disabling
+	// Create custom syntax-highlighting editor (supports multiple modeling languages)
+	modelEditor := editor.NewModelEditor()
+	modelEditor.SetText("// Load a model file to begin editing...")
+	modelEditor.Disable() // Start disabled until a model is loaded
+
+	// Set window reference for find/replace dialogs
+	modelEditor.SetWindow(a.window)
+
+	// Wire up OnSave callback (Ctrl+S/Cmd+S)
+	modelEditor.OnSave = func() {
+		if err := a.saveModelFile(); err != nil {
+			dialog.ShowError(fmt.Errorf("failed to save file: %w", err), a.window)
+		} else {
+			a.showSuccessToast("Model file saved successfully!")
+		}
+	}
+
+	// Wire up OnChanged callback for dirty state tracking
+	modelEditor.OnChanged = func(content string) {
+		// Update save button state based on dirty flag
+		if a.saveBtn != nil {
+			if modelEditor.IsDirty() {
+				a.saveBtn.Importance = widget.DangerImportance // Red to indicate unsaved changes
+			} else {
+				a.saveBtn.Importance = widget.HighImportance // Normal state
+			}
+			a.saveBtn.Refresh()
+		}
+	}
+
+	// Store reference to the editor for direct access
+	a.nonmemEditor = modelEditor
+
+	// Wrap editor in scroll container for large files
+	// The editor widget itself handles focus/tapping, scroll just provides viewport
+	scrolledEditor := container.NewScroll(modelEditor)
+
+	// Legacy textEditor kept for backward compatibility during transition
 	a.textEditor = widget.NewEntry()
 	a.textEditor.MultiLine = true
 	a.textEditor.Wrapping = fyne.TextWrapWord
-	a.textEditor.SetText("// Load a model file to begin editing...")
+	a.textEditor.Hide() // Hidden - using nonmemEditor instead
 
 	// Make the text editor expand to fill available space
-	editorContainer := container.NewBorder(toolbar, nil, nil, nil, a.textEditor)
+	editorContainer := container.NewBorder(toolbar, nil, nil, nil, scrolledEditor)
 
 	// Check if there's a pending model to load now that UI is ready
 	if a.pendingModelPath != "" {
 		if err := a.loadModelFile(a.pendingModelPath); err != nil {
-			// TODO: Show error dialog to user about model loading failure
-			log.Printf("Error loading pending model file: %v", err)
+			log.Printf("Failed to load model file %s: %v", a.pendingModelPath, err)
 		}
 		a.pendingModelPath = "" // Clear the pending path
 	}
@@ -569,33 +905,68 @@ func (a *App) buildTextEditor() fyne.CanvasObject {
 }
 
 func (a *App) buildRunDetailsTab() fyne.CanvasObject {
-	// Create run history table with command and arguments columns
+	// Create run history table with checkbox column for comparison selection
 	a.runHistoryTable = widget.NewTable(
 		func() (int, int) {
-			return len(a.runHistory.Runs), 7 // 7 columns: Run#, Status, Time, Binary, Arguments, Type, Description
+			return len(a.cachedRuns), 11 // 11 columns: Checkbox, Run#, Status, OFV, Min, Verified, Time, Binary, Arguments, Type, Description
 		},
 		func() fyne.CanvasObject {
-			return widget.NewLabel("")
+			// Create a container that can hold either a checkbox or a label
+			check := widget.NewCheck("", nil)
+			label := widget.NewLabel("")
+			// Stack them - we'll show/hide based on column
+			return container.NewStack(check, label)
 		},
 		func(id widget.TableCellID, obj fyne.CanvasObject) {
-			if id.Row >= len(a.runHistory.Runs) {
-				if label, ok := obj.(*widget.Label); ok {
-					label.SetText("")
+			if id.Row >= len(a.cachedRuns) {
+				return
+			}
+
+			stack, ok := obj.(*fyne.Container)
+			if !ok || len(stack.Objects) < 2 {
+				return
+			}
+
+			check, checkOk := stack.Objects[0].(*widget.Check)
+			label, labelOk := stack.Objects[1].(*widget.Label)
+			if !checkOk || !labelOk {
+				return
+			}
+
+			run := a.cachedRuns[id.Row]
+
+			if id.Col == 0 {
+				// Checkbox column
+				check.Show()
+				label.Hide()
+
+				// Update checkbox state without triggering callback
+				check.OnChanged = nil
+				check.SetChecked(a.selectedRunsForCompare[run.ID])
+
+				// Set callback for this specific run
+				check.OnChanged = func(checked bool) {
+					a.toggleRunSelection(run.ID, checked)
 				}
 
 				return
 			}
 
-			run := a.runHistory.Runs[id.Row]
-			label, ok := obj.(*widget.Label)
-			if !ok {
-				return
-			}
+			// All other columns use label
+			check.Hide()
+			label.Show()
+
+			// Reset importance for every cell first. Table cells are recycled, so a
+			// label that previously rendered a green "COMPLETED" or red "FAILED"
+			// status would otherwise leak that color into whichever column reuses it
+			// (the colored noise in #197). Columns that intentionally color override
+			// this below.
+			label.Importance = widget.MediumImportance
 
 			switch id.Col {
-			case 0: // Run #
-				label.SetText(fmt.Sprintf("#%d", run.ID))
-			case 1: // Status
+			case 1: // Run #
+				label.SetText(fmt.Sprintf("#%s", shortRunID(run.ID)))
+			case 2: // Status
 				label.SetText(strings.ToUpper(run.Status))
 				// Color code status
 				switch run.Status {
@@ -608,19 +979,52 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 				default:
 					label.Importance = widget.LowImportance
 				}
-			case 2: // Time
-				label.SetText(run.Timestamp.Format("15:04:05"))
-			case 3: // Binary (extracted from command)
+			case 3: // OFV (Objective Function Value)
+				if run.Summary != nil && run.Summary.GoodnessOfFit.ObjectiveFunctionValue != nil {
+					label.SetText(fmt.Sprintf("%.2f", *run.Summary.GoodnessOfFit.ObjectiveFunctionValue))
+				} else {
+					label.SetText("-")
+				}
+				label.Importance = widget.MediumImportance
+			case 4: // Minimized status
+				if run.Summary != nil {
+					if run.Summary.Estimation.Minimized {
+						label.SetText("✓")
+						label.Importance = widget.SuccessImportance
+					} else {
+						label.SetText("✗")
+						label.Importance = widget.DangerImportance
+					}
+				} else {
+					label.SetText("-")
+					label.Importance = widget.LowImportance
+				}
+			case 5: // Verified (signature verification status)
+				result := runlog.VerifyRecordStatus(&run, "")
+				switch result.Status {
+				case runlog.VerificationValid:
+					label.SetText("✓")
+					label.Importance = widget.SuccessImportance
+				case runlog.VerificationInvalid:
+					label.SetText("✗")
+					label.Importance = widget.DangerImportance
+				case runlog.VerificationUnsigned, runlog.VerificationUnverifiable:
+					label.SetText("?")
+					label.Importance = widget.LowImportance
+				}
+			case 6: // Date/Time
+				label.SetText(run.Timestamp.Format("2006-01-02 15:04:05"))
+			case 7: // Binary (extracted from command)
 				binary, _ := a.splitCommand(run.Command)
 				label.SetText(binary)
-			case 4: // Arguments (extracted from command)
+			case 8: // Arguments (extracted from command)
 				_, args := a.splitCommand(run.Command)
 				// Truncate very long arguments for better display
 				if len(args) > 100 {
 					args = args[:100] + "..."
 				}
 				label.SetText(args)
-			case 5: // Type (Parallel/Grid indicators)
+			case 9: // Type (Parallel/Grid indicators)
 				runType := "Local"
 				if run.IsGrid {
 					runType = "Grid"
@@ -628,10 +1032,9 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 					runType = fmt.Sprintf("Parallel (%d)", run.Cores)
 				}
 				label.SetText(runType)
-			case 6: // Description
+			case 10: // Description
 				description, err := run.GetDescription()
 				if err != nil {
-					log.Printf("Failed to decompress description: %v", err)
 					description = run.Description // Fallback to legacy field
 				}
 				if description != "" {
@@ -644,25 +1047,30 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 	)
 
 	// Set column widths for better display - optimized for readability
-	a.runHistoryTable.SetColumnWidth(0, 50)  // Run #
-	a.runHistoryTable.SetColumnWidth(1, 80)  // Status
-	a.runHistoryTable.SetColumnWidth(2, 70)  // Time
-	a.runHistoryTable.SetColumnWidth(3, 110) // Binary
-	a.runHistoryTable.SetColumnWidth(4, 300) // Arguments (increased for better readability)
-	a.runHistoryTable.SetColumnWidth(5, 90)  // Type
-	a.runHistoryTable.SetColumnWidth(6, 120) // Description (reduced to save space)
+	a.runHistoryTable.SetColumnWidth(0, 32)   // Checkbox (selection for comparison)
+	a.runHistoryTable.SetColumnWidth(1, 65)   // Run # (7 chars: # + 6 UUID chars)
+	a.runHistoryTable.SetColumnWidth(2, 95)   // Status (COMPLETED, FAILED, RUNNING)
+	a.runHistoryTable.SetColumnWidth(3, 90)   // OFV (objective function value)
+	a.runHistoryTable.SetColumnWidth(4, 40)   // Min (minimized status icon)
+	a.runHistoryTable.SetColumnWidth(5, 40)   // Verified (icon only)
+	a.runHistoryTable.SetColumnWidth(6, 145)  // Date/Time (YYYY-MM-DD HH:MM:SS)
+	a.runHistoryTable.SetColumnWidth(7, 80)   // Binary (nonmem, psn, etc)
+	a.runHistoryTable.SetColumnWidth(8, 250)  // Arguments (model paths) - reduced to fit checkbox column
+	a.runHistoryTable.SetColumnWidth(9, 100)  // Type (Parallel (8), Grid, Local)
+	a.runHistoryTable.SetColumnWidth(10, 150) // Description
 
 	// Add selection handler
 	a.runHistoryTable.OnSelected = func(id widget.TableCellID) {
-		if id.Row < len(a.runHistory.Runs) {
+		// Ensure valid row index (non-negative and within bounds)
+		if id.Row >= 0 && id.Row < len(a.cachedRuns) {
 			// Pass by pointer to avoid copying large compressed data
-			a.displayRunDetails(&a.runHistory.Runs[id.Row])
+			a.displayRunDetails(&a.cachedRuns[id.Row])
 		}
 	}
 
 	// Create table headers
 	headerTable := widget.NewTable(
-		func() (int, int) { return 1, 7 }, // 1 row, 7 columns for headers
+		func() (int, int) { return 1, 11 }, // 1 row, 11 columns for headers
 		func() fyne.CanvasObject { return widget.NewRichTextFromMarkdown("**Header**") },
 		func(id widget.TableCellID, obj fyne.CanvasObject) {
 			if id.Row != 0 {
@@ -674,7 +1082,7 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 				return
 			}
 
-			headers := []string{"**Run#**", "**Status**", "**Time**", "**Binary**", "**Arguments**", "**Type**", "**Description**"}
+			headers := []string{"**☐**", "**Run#**", "**Status**", "**OFV**", "**Min**", "**Sig**", "**Date/Time**", "**Binary**", "**Arguments**", "**Type**", "**Description**"}
 			if id.Col < len(headers) {
 				richText.ParseMarkdown(headers[id.Col])
 			}
@@ -682,13 +1090,17 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 	)
 
 	// Set the same column widths as the data table for perfect alignment
-	headerTable.SetColumnWidth(0, 50)  // Run #
-	headerTable.SetColumnWidth(1, 80)  // Status
-	headerTable.SetColumnWidth(2, 70)  // Time
-	headerTable.SetColumnWidth(3, 110) // Binary
-	headerTable.SetColumnWidth(4, 300) // Arguments (increased for better readability)
-	headerTable.SetColumnWidth(5, 90)  // Type
-	headerTable.SetColumnWidth(6, 120) // Description (reduced to save space)
+	headerTable.SetColumnWidth(0, 32)   // Checkbox
+	headerTable.SetColumnWidth(1, 65)   // Run #
+	headerTable.SetColumnWidth(2, 95)   // Status
+	headerTable.SetColumnWidth(3, 90)   // OFV
+	headerTable.SetColumnWidth(4, 40)   // Min
+	headerTable.SetColumnWidth(5, 40)   // Sig (Verified)
+	headerTable.SetColumnWidth(6, 145)  // Date/Time
+	headerTable.SetColumnWidth(7, 80)   // Binary
+	headerTable.SetColumnWidth(8, 250)  // Arguments
+	headerTable.SetColumnWidth(9, 100)  // Type
+	headerTable.SetColumnWidth(10, 150) // Description
 
 	// Right side: Output displays
 	a.stdoutDisplay = widget.NewEntry()
@@ -701,16 +1113,64 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 	a.stderrDisplay.Wrapping = fyne.TextWrapWord
 	a.stderrDisplay.SetText("No run selected...")
 
+	// Parameters container - will be populated when a run is selected
+	a.parametersContainer = container.NewVBox(
+		widget.NewLabel("No run selected..."),
+	)
+
 	// Create tabbed output view
 	a.outputTabs = container.NewAppTabs(
 		container.NewTabItem("STDOUT", container.NewScroll(a.stdoutDisplay)),
 		container.NewTabItem("STDERR", container.NewScroll(a.stderrDisplay)),
+		container.NewTabItem("Parameters", container.NewScroll(a.parametersContainer)),
+	)
+
+	// Create "Compare Selected" button (initially hidden)
+	a.compareButton = widget.NewButton("Compare Selected (0)", func() {
+		a.showComparisonDialog()
+	})
+	a.compareButton.Importance = widget.HighImportance
+	a.compareButton.Hide() // Hidden until 2+ runs selected
+
+	// Create "Visualize Selected" button (initially hidden)
+	a.visualizeButton = widget.NewButton("Visualize Selected (0)", func() {
+		a.showVisualizationDialog()
+	})
+	a.visualizeButton.Hide() // Hidden until 2+ runs selected
+
+	// Create "View GOF Plots" button for single-run diagnostics (initially disabled)
+	a.diagnosticsButton = widget.NewButton("View GOF Plots", func() {
+		if a.selectedRun != nil {
+			ShowDiagnosticsDialog(a.selectedRun, a.window)
+		}
+	})
+	a.diagnosticsButton.Disable() // Disabled until a run is selected
+
+	// Create "Inherit Parameters" button for inheriting estimates from a run (initially disabled)
+	a.inheritParametersButton = widget.NewButton("Inherit Parameters", func() {
+		if a.selectedRun != nil {
+			a.showInheritParametersDialog(a.selectedRun)
+		}
+	})
+	a.inheritParametersButton.Disable() // Disabled until a run with parameters is selected
+
+	// Container for action buttons (allows show/hide)
+	a.compareButtonContainer = container.NewHBox(a.inheritParametersButton, a.diagnosticsButton, a.compareButton, a.visualizeButton)
+
+	// Header area with title, header table, and compare button
+	headerArea := container.NewVBox(
+		container.NewBorder(
+			nil, nil,
+			widget.NewLabel("Run History"),
+			a.compareButtonContainer,
+		),
+		headerTable,
 	)
 
 	// Split layout: run table on left, output on right
 	split := container.NewHSplit(
 		container.NewBorder(
-			container.NewVBox(widget.NewLabel("Run History"), headerTable), // Header table for column alignment
+			headerArea,
 			nil, nil, nil,
 			a.runHistoryTable,
 		),
@@ -725,31 +1185,695 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 	return split
 }
 
-func (a *App) displayRunDetails(run *audit.RunRecord) {
+// toggleRunSelection handles checkbox changes for run comparison selection.
+func (a *App) toggleRunSelection(runID string, selected bool) {
+	if selected {
+		// Limit to 4 selections
+		if len(a.selectedRunsForCompare) >= 4 {
+			// Don't allow more than 4 selections
+			// Refresh the table to reset the checkbox
+			if a.runHistoryTable != nil {
+				a.runHistoryTable.Refresh()
+			}
+
+			return
+		}
+		a.selectedRunsForCompare[runID] = true
+	} else {
+		delete(a.selectedRunsForCompare, runID)
+	}
+
+	a.updateCompareButton()
+}
+
+// updateCompareButton updates the compare and visualize button visibility and text.
+func (a *App) updateCompareButton() {
+	// Buttons may not exist yet during initial model loading
+	if a.compareButton == nil {
+		return
+	}
+
+	count := len(a.selectedRunsForCompare)
+
+	if count >= 2 {
+		a.compareButton.SetText(fmt.Sprintf("Compare Selected (%d)", count))
+		a.compareButton.Show()
+
+		if a.visualizeButton != nil {
+			a.visualizeButton.SetText(fmt.Sprintf("Visualize Selected (%d)", count))
+			a.visualizeButton.Show()
+		}
+	} else {
+		a.compareButton.Hide()
+
+		if a.visualizeButton != nil {
+			a.visualizeButton.Hide()
+		}
+	}
+}
+
+// clearRunSelections clears all run selections (e.g., when switching models).
+func (a *App) clearRunSelections() {
+	a.selectedRunsForCompare = make(map[string]bool)
+	a.updateCompareButton()
+
+	if a.runHistoryTable != nil {
+		a.runHistoryTable.Refresh()
+	}
+}
+
+// showComparisonDialog displays the run comparison dialog.
+func (a *App) showComparisonDialog() {
+	// Collect selected run IDs
+	var selectedIDs []string
+	for id := range a.selectedRunsForCompare {
+		selectedIDs = append(selectedIDs, id)
+	}
+
+	if len(selectedIDs) < 2 {
+		return
+	}
+
+	// Fetch run records from store
+	var records []*runlog.RunRecord
+	for _, id := range selectedIDs {
+		rec, err := a.runLogStore.GetRun(id)
+		if err != nil {
+			a.sendError(fmt.Errorf("failed to get run %s: %w", id, err))
+
+			return
+		}
+		records = append(records, rec)
+	}
+
+	// Determine correlation strategy from the model config that lives alongside
+	// the runs being compared. We resolve it from the most recent RunRecord rather
+	// than the file currently open in the editor, which may be a different model
+	// (or none at all) than the runs the user selected.
+	strategy := comparison.StrategyConservative
+	if modelFile := mostRecentModelFile(records); modelFile != "" {
+		if modelConfig, err := config.LoadModelConfig(modelFile); err == nil {
+			strategy = comparison.ParseCorrelationStrategy(modelConfig.CorrelationStrategy)
+		}
+		// If config doesn't exist or can't be loaded, use default (conservative)
+	}
+
+	// Perform comparison with the configured strategy
+	result, err := comparison.CompareRunsWithStrategy(records, strategy)
+	if err != nil {
+		a.sendError(fmt.Errorf("comparison failed: %w", err))
+
+		return
+	}
+
+	// Build comparison dialog content
+	content := a.buildComparisonContent(result)
+
+	// Create custom dialog
+	comparisonDialog := dialog.NewCustom(
+		fmt.Sprintf("Compare Runs (%d)", len(selectedIDs)),
+		"Close",
+		content,
+		a.window,
+	)
+	comparisonDialog.Resize(fyne.NewSize(800, 600))
+	comparisonDialog.Show()
+}
+
+// mostRecentModelFile returns the ModelFile of the most recently timestamped
+// record, used to locate the .janus.config.json that governs the comparison.
+// Records with no ModelFile are ignored; it returns "" if none qualify.
+func mostRecentModelFile(records []*runlog.RunRecord) string {
+	var newest *runlog.RunRecord
+	for _, rec := range records {
+		if rec == nil || rec.ModelFile == "" {
+			continue
+		}
+
+		if newest == nil || rec.Timestamp.After(newest.Timestamp) {
+			newest = rec
+		}
+	}
+
+	if newest == nil {
+		return ""
+	}
+
+	return newest.ModelFile
+}
+
+// buildComparisonContent builds the content for the comparison dialog.
+func (a *App) buildComparisonContent(result *comparison.ComparisonResult) fyne.CanvasObject {
+	// Build LRT summary section
+	lrtSection := a.buildLRTSection(result)
+
+	// Build parameter comparison table
+	paramTable := a.buildComparisonTable(result)
+
+	// Build metadata section
+	metadataSection := a.buildMetadataSection(result)
+
+	// Build legend section
+	legendSection := a.buildComparisonLegend()
+
+	// Combine all sections in a scrollable container
+	content := container.NewVBox(
+		lrtSection,
+		widget.NewSeparator(),
+		widget.NewLabel("Parameter Comparison"),
+		paramTable,
+		widget.NewSeparator(),
+		metadataSection,
+		widget.NewSeparator(),
+		legendSection,
+	)
+
+	return container.NewScroll(content)
+}
+
+// buildLRTSection builds the LRT summary section.
+func (a *App) buildLRTSection(result *comparison.ComparisonResult) fyne.CanvasObject {
+	if len(result.Runs) < 2 || result.OFVRow == nil {
+		return widget.NewLabel("OFV comparison not available")
+	}
+
+	// Get first and last run for LRT
+	firstRun := result.Runs[0]
+	lastRun := result.Runs[len(result.Runs)-1]
+
+	// Calculate parameter count difference
+	deltaParams := countParams(lastRun) - countParams(firstRun)
+
+	// Build OFV display
+	var ofvText string
+	if result.OFVRow.Delta != nil {
+		ofvText = fmt.Sprintf("ΔOFV: %s (%s)",
+			comparison.FormatDelta(result.OFVRow.Delta),
+			comparison.FormatDeltaPct(result.OFVRow.DeltaPct))
+	} else {
+		ofvText = "ΔOFV: N/A"
+	}
+
+	ofvLabel := widget.NewLabel(ofvText)
+	ofvLabel.TextStyle = fyne.TextStyle{Bold: true}
+
+	// Perform LRT if we have valid OFV values
+	var lrtText string
+
+	switch {
+	case firstRun.OFV != nil && lastRun.OFV != nil && deltaParams > 0:
+		lrt := comparison.CalculateLRT(*firstRun.OFV, *lastRun.OFV, deltaParams, 0.05)
+		lrtText = comparison.FormatLRTResult(lrt)
+	case deltaParams == 0:
+		lrtText = "Same parameter count - direct OFV comparison"
+	default:
+		lrtText = "LRT not applicable"
+	}
+
+	lrtLabel := widget.NewLabel(lrtText)
+
+	// Run IDs row
+	runIDsText := "Comparing: "
+	for i, run := range result.Runs {
+		if i > 0 {
+			runIDsText += " → "
+		}
+		runIDsText += fmt.Sprintf("#%s", shortRunID(run.ID))
+	}
+	runIDsLabel := widget.NewLabel(runIDsText)
+	runIDsLabel.TextStyle = fyne.TextStyle{Italic: true}
+
+	return container.NewVBox(
+		runIDsLabel,
+		ofvLabel,
+		lrtLabel,
+	)
+}
+
+// countParams counts total estimated parameters in a run snapshot.
+func countParams(snap *comparison.RunSnapshot) int {
+	count := 0
+	for _, t := range snap.Thetas {
+		if !t.Fixed {
+			count++
+		}
+	}
+	for _, o := range snap.Omegas {
+		if !o.Fixed {
+			count++
+		}
+	}
+	for _, s := range snap.Sigmas {
+		if !s.Fixed {
+			count++
+		}
+	}
+
+	return count
+}
+
+// buildComparisonTable builds the parameter comparison table.
+func (a *App) buildComparisonTable(result *comparison.ComparisonResult) fyne.CanvasObject {
+	numRuns := len(result.Runs)
+	// Columns: Parameter, [Run1, Run2, ...], Delta, %Δ
+	numCols := 1 + numRuns + 2
+
+	// Include OFV row + parameter rows
+	allRows := []comparison.ParameterRow{}
+	if result.OFVRow != nil {
+		allRows = append(allRows, *result.OFVRow)
+	}
+	allRows = append(allRows, result.ParameterRows...)
+
+	table := widget.NewTable(
+		func() (int, int) {
+			return len(allRows) + 1, numCols // +1 for header
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("")
+		},
+		func(id widget.TableCellID, obj fyne.CanvasObject) {
+			label, ok := obj.(*widget.Label)
+			if !ok {
+				return
+			}
+
+			// Header row
+			if id.Row == 0 {
+				switch {
+				case id.Col == 0:
+					label.SetText("Parameter")
+					label.TextStyle = fyne.TextStyle{Bold: true}
+				case id.Col <= numRuns:
+					run := result.Runs[id.Col-1]
+					label.SetText(fmt.Sprintf("#%s", shortRunID(run.ID)))
+					label.TextStyle = fyne.TextStyle{Bold: true}
+				case id.Col == numRuns+1:
+					label.SetText("Delta")
+					label.TextStyle = fyne.TextStyle{Bold: true}
+				case id.Col == numRuns+2:
+					label.SetText("%Δ")
+					label.TextStyle = fyne.TextStyle{Bold: true}
+				}
+				label.Importance = widget.MediumImportance
+
+				return
+			}
+
+			// Data rows
+			rowIdx := id.Row - 1
+			if rowIdx >= len(allRows) {
+				return
+			}
+
+			row := allRows[rowIdx]
+			label.TextStyle = fyne.TextStyle{}
+			label.Importance = widget.MediumImportance // Reset importance to avoid stale highlighting
+
+			switch {
+			case id.Col == 0:
+				// Display parameter with label if available (e.g., "THETA1 (CL)")
+				displayName := comparison.FormatParameterWithLabel(row.Name, row.Label)
+				label.SetText(displayName)
+				// Bold for section headers (OFV, first of each type)
+				if row.Type == "ofv" {
+					label.TextStyle = fyne.TextStyle{Bold: true}
+				}
+			case id.Col <= numRuns:
+				valIdx := id.Col - 1
+				if valIdx < len(row.Values) {
+					label.SetText(comparison.FormatValue(row.Values[valIdx]))
+				} else {
+					label.SetText(comparison.MissingValueDisplay)
+				}
+			case id.Col == numRuns+1:
+				label.SetText(comparison.FormatDelta(row.Delta))
+				a.applyHighlightStyle(label, row.Highlight)
+			case id.Col == numRuns+2:
+				label.SetText(comparison.FormatDeltaPct(row.DeltaPct))
+				a.applyHighlightStyle(label, row.Highlight)
+			}
+		},
+	)
+
+	// Set column widths
+	table.SetColumnWidth(0, 150) // Parameter name (with label)
+	for i := 1; i <= numRuns; i++ {
+		table.SetColumnWidth(i, 100) // Run values
+	}
+	table.SetColumnWidth(numRuns+1, 80) // Delta
+	table.SetColumnWidth(numRuns+2, 80) // %Delta
+
+	// Wrap in scroll container
+	scroll := container.NewScroll(table)
+	scroll.SetMinSize(fyne.NewSize(0, 300))
+
+	return scroll
+}
+
+// applyHighlightStyle applies color styling based on highlight level.
+func (a *App) applyHighlightStyle(label *widget.Label, highlight comparison.HighlightLevel) {
+	// For OFV and most params, negative delta (decrease) is neutral/good
+	// Large changes get warning colors
+	switch highlight {
+	case comparison.HighlightWarning:
+		label.Importance = widget.DangerImportance
+	case comparison.HighlightMajor:
+		label.Importance = widget.WarningImportance
+	case comparison.HighlightMinor, comparison.HighlightNone:
+		label.Importance = widget.MediumImportance
+	}
+	label.Refresh()
+}
+
+// buildMetadataSection builds the metadata comparison section.
+func (a *App) buildMetadataSection(result *comparison.ComparisonResult) fyne.CanvasObject {
+	if len(result.MetadataRows) == 0 {
+		return widget.NewLabel("")
+	}
+
+	numRuns := len(result.Runs)
+
+	// Build grid of metadata
+	grid := container.NewGridWithColumns(numRuns + 1)
+
+	// Header row
+	grid.Add(widget.NewLabel(""))
+	for _, run := range result.Runs {
+		lbl := widget.NewLabel(fmt.Sprintf("#%s", shortRunID(run.ID)))
+		lbl.TextStyle = fyne.TextStyle{Bold: true}
+		grid.Add(lbl)
+	}
+
+	// Data rows
+	for _, row := range result.MetadataRows {
+		nameLbl := widget.NewLabel(row.Name)
+		nameLbl.TextStyle = fyne.TextStyle{Bold: true}
+		grid.Add(nameLbl)
+
+		for _, val := range row.Values {
+			valLbl := widget.NewLabel(val)
+			// Color code checkmarks
+			switch val {
+			case "✓":
+				valLbl.Importance = widget.SuccessImportance
+			case "✗":
+				valLbl.Importance = widget.DangerImportance
+			}
+			grid.Add(valLbl)
+		}
+	}
+
+	return container.NewVBox(
+		widget.NewLabel("Run Metadata"),
+		grid,
+	)
+}
+
+// buildComparisonLegend builds the legend explaining symbols and colors.
+func (a *App) buildComparisonLegend() fyne.CanvasObject {
+	header := widget.NewLabel("Legend")
+	header.TextStyle = fyne.TextStyle{Bold: true}
+
+	// Color legend items
+	warningLbl := widget.NewLabel("Red text")
+	warningLbl.Importance = widget.DangerImportance
+	warningDesc := widget.NewLabel("= Change > 10% (large deviation)")
+
+	successLbl := widget.NewLabel("✓")
+	successLbl.Importance = widget.SuccessImportance
+	successDesc := widget.NewLabel("= Success (minimized, covariance step passed)")
+
+	failLbl := widget.NewLabel("✗")
+	failLbl.Importance = widget.DangerImportance
+	failDesc := widget.NewLabel("= Failure (did not minimize, covariance step failed)")
+
+	// Symbol legend
+	dashDesc := widget.NewLabel("—  = Value not available (parameter missing or run failed)")
+	deltaDesc := widget.NewLabel("Delta = Change from first to last run in comparison")
+
+	// Build legend grid
+	legendGrid := container.NewGridWithColumns(2,
+		container.NewHBox(warningLbl, warningDesc),
+		container.NewHBox(successLbl, successDesc),
+		container.NewHBox(failLbl, failDesc),
+		dashDesc,
+	)
+
+	return container.NewVBox(
+		header,
+		legendGrid,
+		deltaDesc,
+	)
+}
+
+// showVisualizationDialog displays charts for selected runs.
+func (a *App) showVisualizationDialog() {
+	// Collect selected run IDs
+	var selectedIDs []string
+	for id := range a.selectedRunsForCompare {
+		selectedIDs = append(selectedIDs, id)
+	}
+
+	if len(selectedIDs) < 2 {
+		return
+	}
+
+	// Fetch run records from store
+	var records []*runlog.RunRecord
+	for _, id := range selectedIDs {
+		rec, err := a.runLogStore.GetRun(id)
+		if err != nil {
+			a.sendError(fmt.Errorf("failed to get run %s: %w", id, err))
+
+			return
+		}
+		records = append(records, rec)
+	}
+
+	// Build visualization dialog content
+	content := a.buildVisualizationContent(records)
+
+	// Create custom dialog
+	vizDialog := dialog.NewCustom(
+		fmt.Sprintf("Visualize Runs (%d)", len(selectedIDs)),
+		"Close",
+		content,
+		a.window,
+	)
+	vizDialog.Resize(fyne.NewSize(900, 650))
+	vizDialog.Show()
+}
+
+// buildVisualizationContent builds the content for the visualization dialog.
+func (a *App) buildVisualizationContent(records []*runlog.RunRecord) fyne.CanvasObject {
+	// Extract OFV data
+	ofvData := visualization.ExtractOFVData(records)
+
+	// Create tabs for different chart types
+	tabs := container.NewAppTabs()
+
+	// OFV Trend Chart Tab
+	if len(ofvData) >= 2 {
+		ofvChart := a.buildOFVChartContent(ofvData)
+		tabs.Append(container.NewTabItem("OFV Trend", ofvChart))
+	}
+
+	// Parameter Charts Tab
+	paramNames := visualization.GetAllParameterNames(records)
+	if len(paramNames) > 0 {
+		paramContent := a.buildParameterChartContent(records, paramNames)
+		tabs.Append(container.NewTabItem("Parameters", paramContent))
+	}
+
+	// Convergence Chart Tab
+	if len(ofvData) >= 2 {
+		convChart := a.buildConvergenceChartContent(ofvData)
+		tabs.Append(container.NewTabItem("Convergence", convChart))
+	}
+
+	if len(tabs.Items) == 0 {
+		return widget.NewLabel("No visualization data available")
+	}
+
+	return tabs
+}
+
+// buildOFVChartContent builds the OFV trend chart tab content.
+func (a *App) buildOFVChartContent(data []visualization.OFVDataPoint) fyne.CanvasObject {
+	opts := visualization.DefaultChartOptions()
+	opts.Title = "OFV Trend Across Runs"
+	opts.Width = 800
+	opts.Height = 350
+
+	result, err := visualization.GenerateOFVTrendChart(data, opts)
+	if err != nil {
+		return widget.NewLabel(fmt.Sprintf("Error generating chart: %v", err))
+	}
+
+	// Convert PNG bytes to Fyne image
+	img := fyne.NewStaticResource("ofv_trend.png", result.Data)
+
+	// "Open in Browser" button for interactive chart
+	openBrowserBtn := widget.NewButton("Open Interactive in Browser", func() {
+		interactiveOpts := visualization.DefaultInteractiveOptions()
+		interactiveOpts.Title = "OFV Trend Across Runs"
+		if err := visualization.GenerateAndOpenInteractiveOFV(data, interactiveOpts); err != nil {
+			a.sendError(fmt.Errorf("failed to open interactive chart: %w", err))
+		}
+	})
+
+	return container.NewBorder(
+		nil,
+		container.NewHBox(openBrowserBtn),
+		nil, nil,
+		container.NewScroll(widget.NewIcon(img)),
+	)
+}
+
+// buildParameterChartContent builds the parameter comparison chart tab content.
+func (a *App) buildParameterChartContent(records []*runlog.RunRecord, paramNames []string) fyne.CanvasObject {
+	// Create a dropdown to select which parameter to visualize
+	paramSelect := widget.NewSelect(paramNames, nil)
+	if len(paramNames) > 0 {
+		paramSelect.SetSelected(paramNames[0])
+	}
+
+	// Chart container that will be updated when selection changes
+	chartContainer := container.NewStack()
+
+	// Track current parameter data for browser export
+	var currentParamData []visualization.ParameterDataPoint
+	var currentParamName string
+
+	updateChart := func(paramName string) {
+		chartContainer.RemoveAll()
+
+		data := visualization.ExtractParameterData(records, paramName)
+		currentParamData = data
+		currentParamName = paramName
+
+		if len(data) < 2 {
+			chartContainer.Add(widget.NewLabel("Not enough data points"))
+			chartContainer.Refresh()
+
+			return
+		}
+
+		opts := visualization.DefaultChartOptions()
+		opts.Title = fmt.Sprintf("%s Across Runs", paramName)
+		opts.Width = 800
+		opts.Height = 350
+
+		result, err := visualization.GenerateParameterBarChart(data, opts)
+		if err != nil {
+			chartContainer.Add(widget.NewLabel(fmt.Sprintf("Error: %v", err)))
+			chartContainer.Refresh()
+
+			return
+		}
+
+		img := fyne.NewStaticResource("param_chart.png", result.Data)
+		chartContainer.Add(widget.NewIcon(img))
+		chartContainer.Refresh()
+	}
+
+	paramSelect.OnChanged = updateChart
+
+	// Initial chart
+	if len(paramNames) > 0 {
+		updateChart(paramNames[0])
+	}
+
+	// "Open in Browser" button for interactive chart
+	openBrowserBtn := widget.NewButton("Open Interactive in Browser", func() {
+		if len(currentParamData) < 2 {
+			return
+		}
+
+		interactiveOpts := visualization.DefaultInteractiveOptions()
+		interactiveOpts.Title = fmt.Sprintf("%s Across Runs", currentParamName)
+		if err := visualization.GenerateAndOpenInteractiveParameter(currentParamData, interactiveOpts); err != nil {
+			a.sendError(fmt.Errorf("failed to open interactive chart: %w", err))
+		}
+	})
+
+	return container.NewBorder(
+		container.NewHBox(widget.NewLabel("Parameter:"), paramSelect),
+		container.NewHBox(openBrowserBtn),
+		nil, nil,
+		container.NewScroll(chartContainer),
+	)
+}
+
+// buildConvergenceChartContent builds the convergence (OFV delta) chart tab content.
+func (a *App) buildConvergenceChartContent(data []visualization.OFVDataPoint) fyne.CanvasObject {
+	opts := visualization.DefaultChartOptions()
+	opts.Title = "OFV Changes Between Runs"
+	opts.Width = 800
+	opts.Height = 350
+
+	result, err := visualization.GenerateConvergenceChart(data, opts)
+	if err != nil {
+		return widget.NewLabel(fmt.Sprintf("Error generating chart: %v", err))
+	}
+
+	img := fyne.NewStaticResource("convergence.png", result.Data)
+
+	return container.NewScroll(widget.NewIcon(img))
+}
+
+func (a *App) displayRunDetails(run *runlog.RunRecord) {
+	// Store the selected run for the diagnostics button
+	a.selectedRun = run
+
+	// Enable/disable diagnostics button based on whether GOF data is available
+	// Note: We only check existing data - we do NOT modify the run record here
+	// to avoid invalidating signatures (critical for GxP compliance)
+	if a.diagnosticsButton != nil {
+		if run != nil && run.Summary != nil && run.Summary.TableDiagnostics != nil &&
+			run.Summary.TableDiagnostics.GOFData != nil {
+
+			a.diagnosticsButton.Enable()
+		} else {
+			a.diagnosticsButton.Disable()
+		}
+	}
+
+	// Enable/disable inherit parameters button based on whether parameter estimates exist
+	if a.inheritParametersButton != nil {
+		if run != nil && run.Summary != nil && len(run.Summary.Parameters.Thetas) > 0 {
+			a.inheritParametersButton.Enable()
+		} else {
+			a.inheritParametersButton.Disable()
+		}
+	}
+
 	// Clear current displays immediately
 	a.stdoutDisplay.SetText("")
 	a.stderrDisplay.SetText("")
 
+	// Clear parameters container
+	a.parametersContainer.RemoveAll()
+	a.parametersContainer.Add(widget.NewLabel("Loading..."))
+
 	// Do ALL decompression work in background
-	go func(runPtr *audit.RunRecord) {
+	go func(runPtr *runlog.RunRecord) {
 		// Decompress stdout/stderr
 		stdout, err := runPtr.GetStdout()
 		if err != nil {
-			log.Printf("Failed to decompress stdout: %v", err)
 			stdout = runPtr.Stdout // Fallback to legacy field
 		}
 
 		stderr, err := runPtr.GetStderr()
 		if err != nil {
-			log.Printf("Failed to decompress stderr: %v", err)
 			stderr = runPtr.Stderr // Fallback to legacy field
 		}
 
-		// Update displays
-		a.stdoutDisplay.SetText(stdout)
-		a.stderrDisplay.SetText(stderr)
+		// Build parameters view (tables)
+		parametersView := buildParametersView(runPtr)
 
-		// Build buttons container for embedded files
+		// Build buttons container for embedded files (before UI update)
 		var buttons []fyne.CanvasObject
 
 		// Add "Run Message" button if description exists
@@ -762,16 +1886,38 @@ func (a *App) displayRunDetails(run *audit.RunRecord) {
 			buttons = append(buttons, messageBtn)
 		}
 
-		// Add buttons for embedded output files
-		extensions := audit.GetEmbeddedFileExtensions(runPtr)
-		for _, ext := range extensions {
-			extCopy := ext // Capture for closure
-			fileBtn := widget.NewButton("."+ext, func() {
-				a.showFileWindow(runPtr, "."+extCopy, extCopy)
+		// Add buttons for embedded output files (keyed by filename now).
+		names := runlog.GetEmbeddedFileNames(runPtr)
+		for _, name := range names {
+			nameCopy := name // Capture for closure
+			fileBtn := widget.NewButton(name, func() {
+				a.showFileWindow(runPtr, nameCopy, nameCopy)
 			})
 			buttons = append(buttons, fileBtn)
 		}
 
+		// A PsN analysis (vpc/bootstrap/scm) can re-render its result from the
+		// collected artifacts on disk — no re-running needed (#189). Detect it from
+		// the recorded command and offer a button.
+		if tool := psnToolFromCommand(runPtr.Command); tool != "" {
+			modelDir := filepath.Dir(runPtr.ModelFile)
+			resultsBtn := widget.NewButton(psnResultButtonLabel(tool), func() {
+				showPSNResultsDialog(a.window, tool, modelDir)
+			})
+			resultsBtn.Importance = widget.HighImportance
+			buttons = append(buttons, resultsBtn)
+		}
+
+		// A saga parent (e.g. a horizontal bootstrap) gets its own tab listing the
+		// per-fit children and a download for the whole workspace. Fetch the
+		// children here (cheap index read) and build the tab on the UI thread.
+		var sagaChildren []*runlog.RunRecord
+		isSaga := runPtr.Kind == runlog.KindSaga
+		if isSaga && a.runLogStore != nil {
+			sagaChildren, _ = a.runLogStore.ChildrenOf(runPtr.ID)
+		}
+
+		var buttonsContainer *fyne.Container
 		// Create buttons container if we have any buttons
 		if len(buttons) > 0 {
 			// Add export button
@@ -782,90 +1928,479 @@ func (a *App) displayRunDetails(run *audit.RunRecord) {
 
 			buttonsLabel := widget.NewLabel("Embedded Files:")
 			buttonsGrid := container.NewGridWithColumns(4, buttons...)
-			buttonsContainer := container.NewVBox(
+			buttonsContainer = container.NewVBox(
 				buttonsLabel,
 				buttonsGrid,
 				widget.NewSeparator(),
 				exportBtn,
 			)
+		}
 
-			// Add to output tabs (replacing any existing "Files" tab)
+		// Update UI on main thread
+		fyne.Do(func() {
+			a.stdoutDisplay.SetText(stdout)
+			a.stderrDisplay.SetText(stderr)
+
+			// Update parameters container
+			a.parametersContainer.RemoveAll()
+			a.parametersContainer.Add(parametersView)
+
+			if buttonsContainer != nil {
+				// Add to output tabs (replacing any existing "Files" tab)
+				for i := len(a.outputTabs.Items) - 1; i >= 0; i-- {
+					if a.outputTabs.Items[i].Text == "Files" {
+						a.outputTabs.RemoveIndex(i)
+					}
+				}
+
+				filesTab := container.NewTabItem("Files", buttonsContainer)
+				a.outputTabs.Append(filesTab)
+			}
+
+			// Replace any prior "Saga" tab, then add one for this saga parent.
 			for i := len(a.outputTabs.Items) - 1; i >= 0; i-- {
-				if a.outputTabs.Items[i].Text == "Files" {
+				if a.outputTabs.Items[i].Text == "Saga" {
 					a.outputTabs.RemoveIndex(i)
 				}
 			}
 
-			filesTab := container.NewTabItem("Files", buttonsContainer)
-			a.outputTabs.Append(filesTab)
-		}
+			if isSaga {
+				sagaTab := container.NewTabItem("Saga", a.buildSagaView(runPtr, sagaChildren))
+				a.outputTabs.Append(sagaTab)
+			}
+		})
 	}(run)
 }
 
-// showFileWindow opens a separate window to display a file from the run record.
-func (a *App) showFileWindow(run *audit.RunRecord, title, fileType string) {
-	// Create new window for file display
-	window := a.fyneApp.NewWindow(fmt.Sprintf("%s - Run #%d", title, run.ID))
-	window.Resize(fyne.NewSize(800, 600))
+// buildSagaView renders the details panel for a saga parent (e.g. a horizontal
+// bootstrap, #192): a summary, the per-fit children with their statuses, and a
+// button to download the whole saga workspace as a zip.
+func (a *App) buildSagaView(run *runlog.RunRecord, children []*runlog.RunRecord) fyne.CanvasObject {
+	description, err := run.GetDescription()
+	if err != nil || description == "" {
+		description = run.Description
+	}
 
-	// Create loading label
-	loadingLabel := widget.NewLabel("Loading...")
-	window.SetContent(container.NewCenter(loadingLabel))
-	window.Show()
+	if description == "" {
+		description = "Bootstrap saga."
+	}
 
-	// Load content in background
-	go func() {
-		var content string
-		var err error
+	summary := widget.NewLabel(description)
+	summary.Wrapping = fyne.TextWrapWord
 
-		// Load content based on file type
-		if fileType == "description" {
-			content, err = run.GetDescription()
-			if err != nil {
-				log.Printf("Failed to decompress description: %v", err)
-				content = run.Description
+	header := widget.NewLabelWithStyle(
+		fmt.Sprintf("Fits (%d)", len(children)), fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+
+	// Virtualized list so a large fan-out (hundreds of fits) stays responsive.
+	list := widget.NewList(
+		func() int { return len(children) },
+		func() fyne.CanvasObject {
+			id := widget.NewLabel("")
+			args := widget.NewLabel("")
+			status := widget.NewLabel("")
+
+			return container.NewBorder(nil, nil, id, status, args)
+		},
+		func(i widget.ListItemID, obj fyne.CanvasObject) {
+			if i < 0 || i >= len(children) {
+				return
 			}
-		} else {
-			// It's an embedded file
-			data, extractErr := audit.ExtractEmbeddedFile(run, fileType)
-			if extractErr != nil {
-				err = extractErr
-				content = fmt.Sprintf("Error: %v", err)
-			} else {
-				content = string(data)
+
+			child := children[i]
+			border, ok := obj.(*fyne.Container)
+			if !ok || len(border.Objects) < 3 {
+				return
 			}
+
+			// container.NewBorder lays out as [center, left, right].
+			args, _ := border.Objects[0].(*widget.Label)
+			id, _ := border.Objects[1].(*widget.Label)
+			status, _ := border.Objects[2].(*widget.Label)
+			if args == nil || id == nil || status == nil {
+				return
+			}
+
+			id.SetText(fmt.Sprintf("#%s", shortRunID(child.ID)))
+			_, cmdArgs := a.splitCommand(child.Command)
+			args.SetText(cmdArgs)
+
+			status.SetText(strings.ToUpper(child.Status))
+			switch child.Status {
+			case "completed":
+				status.Importance = widget.SuccessImportance
+			case "failed":
+				status.Importance = widget.DangerImportance
+			default:
+				status.Importance = widget.MediumImportance
+			}
+		},
+	)
+
+	downloadBtn := widget.NewButton("Download all files (.zip)", func() {
+		a.exportSagaFiles(run)
+	})
+	downloadBtn.Importance = widget.HighImportance
+
+	// The list needs a bounded height to scroll inside the tab.
+	listScroll := container.NewVScroll(list)
+	listScroll.SetMinSize(fyne.NewSize(0, 260))
+
+	return container.NewBorder(
+		container.NewVBox(summary, widget.NewSeparator(), header),
+		container.NewVBox(widget.NewSeparator(), downloadBtn),
+		nil, nil,
+		listScroll,
+	)
+}
+
+// exportSagaFiles zips a completed saga's on-disk workspace (resampled datasets,
+// per-fit outputs, and aggregate result CSVs under the model directory's bs/
+// tree) to a user-chosen folder.
+func (a *App) exportSagaFiles(run *runlog.RunRecord) {
+	modelDir := filepath.Dir(run.ModelFile)
+	workspaceDir := filepath.Join(modelDir, execution.BootstrapWorkspaceDirName)
+
+	if info, err := os.Stat(workspaceDir); err != nil || !info.IsDir() {
+		dialog.ShowError(fmt.Errorf(
+			"no saga workspace found on disk at %s — the results may have been moved or the saga predates workspace persistence",
+			workspaceDir), a.window)
+
+		return
+	}
+
+	modelName := strings.TrimSuffix(filepath.Base(run.ModelFile), filepath.Ext(run.ModelFile))
+	defaultFileName := fmt.Sprintf("%s_bootstrap_%s.zip", modelName, shortRunID(run.ID))
+
+	dialog.ShowFolderOpen(func(dir fyne.ListableURI, err error) {
+		if err != nil || dir == nil {
+			return
 		}
 
-		// Create read-only text display using RichText for better performance
-		richText := widget.NewRichTextFromMarkdown("```\n" + content + "\n```")
-		richText.Wrapping = fyne.TextWrapWord
+		zipPath := filepath.Join(dir.Path(), defaultFileName)
 
-		// Create scrollable container
-		scroll := container.NewScroll(richText)
+		go func() {
+			file, err := os.Create(zipPath)
+			if err != nil {
+				a.sendError(fmt.Errorf("failed to create zip file: %w", err))
 
-		// Add close button
-		closeBtn := widget.NewButton("Close", func() {
-			window.Close()
-		})
+				return
+			}
+			defer file.Close()
 
-		// Main layout
-		windowContent := container.NewBorder(
-			nil,
-			container.NewHBox(widget.NewLabel(""), closeBtn), // Right-aligned close button
-			nil,
-			nil,
-			scroll,
+			if err := zipDirectory(workspaceDir, execution.BootstrapWorkspaceDirName, file); err != nil {
+				a.sendError(fmt.Errorf("failed to create saga zip archive: %w", err))
+
+				return
+			}
+
+			a.showSuccessToast(fmt.Sprintf("Exported saga #%s files to %s", shortRunID(run.ID), zipPath))
+		}()
+	}, a.window)
+}
+
+// zipDirectory writes every file under srcDir into the zip writer, each entry
+// prefixed with prefix (so the archive expands into a single named directory).
+func zipDirectory(srcDir, prefix string, w io.Writer) error {
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	return filepath.WalkDir(srcDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return fmt.Errorf("resolving %s: %w", path, err)
+		}
+
+		// Zip entries always use forward slashes regardless of host OS.
+		entryName := prefix + "/" + filepath.ToSlash(rel)
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", path, err)
+		}
+
+		entry, err := zipWriter.Create(entryName)
+		if err != nil {
+			return fmt.Errorf("creating zip entry %s: %w", entryName, err)
+		}
+
+		if _, err := entry.Write(content); err != nil {
+			return fmt.Errorf("writing %s to zip: %w", entryName, err)
+		}
+
+		return nil
+	})
+}
+
+// buildParametersView creates a structured view with tables for model parameters.
+func buildParametersView(run *runlog.RunRecord) fyne.CanvasObject {
+	if run.Summary == nil {
+		return container.NewVBox(
+			widget.NewLabel("No parameter summary available."),
+			widget.NewLabel(""),
+			widget.NewLabel("This run may not have completed successfully,"),
+			widget.NewLabel("or parameter extraction was not performed."),
 		)
+	}
 
-		window.SetContent(windowContent)
-	}()
+	summary := run.Summary
+	var sections []fyne.CanvasObject
+
+	// Summary header section
+	summaryGrid := container.NewGridWithColumns(4,
+		widget.NewLabelWithStyle("OFV:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel(formatOFV(summary.GoodnessOfFit.ObjectiveFunctionValue)),
+		widget.NewLabelWithStyle("Method:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel(summary.Estimation.Method),
+
+		widget.NewLabelWithStyle("Subjects:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel(fmt.Sprintf("%d", summary.Estimation.Subjects)),
+		widget.NewLabelWithStyle("Observations:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		widget.NewLabel(fmt.Sprintf("%d", summary.Estimation.Observations)),
+
+		widget.NewLabelWithStyle("Minimized:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		createStatusLabel(summary.Estimation.Minimized),
+		widget.NewLabelWithStyle("Covariance:", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		createStatusLabel(summary.Diagnostics.CovarianceStepSuccess),
+	)
+
+	sections = append(sections,
+		widget.NewRichTextFromMarkdown("## Model Summary"),
+		summaryGrid,
+		widget.NewSeparator(),
+	)
+
+	// THETA table
+	if len(summary.Parameters.Thetas) > 0 {
+		thetaTable := buildParameterTable(summary.Parameters.Thetas, false)
+		sections = append(sections,
+			widget.NewRichTextFromMarkdown("### THETA (Fixed Effects)"),
+			thetaTable,
+			widget.NewSeparator(),
+		)
+	}
+
+	// OMEGA table
+	if len(summary.Parameters.Omegas) > 0 {
+		omegaTable := buildParameterTable(summary.Parameters.Omegas, true)
+		sections = append(sections,
+			widget.NewRichTextFromMarkdown("### OMEGA (Inter-Individual Variability)"),
+			omegaTable,
+			widget.NewSeparator(),
+		)
+	}
+
+	// SIGMA table
+	if len(summary.Parameters.Sigmas) > 0 {
+		sigmaTable := buildParameterTable(summary.Parameters.Sigmas, false)
+		sections = append(sections,
+			widget.NewRichTextFromMarkdown("### SIGMA (Residual Variability)"),
+			sigmaTable,
+			widget.NewSeparator(),
+		)
+	}
+
+	// Diagnostics section
+	if len(summary.Diagnostics.Warnings) > 0 || len(summary.Diagnostics.Errors) > 0 {
+		diagItems := []fyne.CanvasObject{
+			widget.NewRichTextFromMarkdown("### Diagnostics"),
+		}
+
+		if len(summary.Diagnostics.Warnings) > 0 {
+			warningLabel := widget.NewLabel(fmt.Sprintf("⚠ %d warning(s)", len(summary.Diagnostics.Warnings)))
+			warningLabel.Importance = widget.WarningImportance
+			diagItems = append(diagItems, warningLabel)
+		}
+
+		if len(summary.Diagnostics.Errors) > 0 {
+			errorLabel := widget.NewLabel(fmt.Sprintf("✗ %d error(s)", len(summary.Diagnostics.Errors)))
+			errorLabel.Importance = widget.DangerImportance
+			diagItems = append(diagItems, errorLabel)
+		}
+
+		sections = append(sections, diagItems...)
+	}
+
+	return container.NewVBox(sections...)
+}
+
+// buildParameterTable creates a table widget for a slice of parameter estimates.
+func buildParameterTable(params []model.ParameterEstimate, showCV bool) fyne.CanvasObject {
+	// Determine column count
+	colCount := 2 // Name, Estimate
+	if showCV {
+		colCount = 3 // Name, Estimate, %CV
+	}
+
+	table := widget.NewTable(
+		func() (int, int) {
+			return len(params) + 1, colCount // +1 for header row
+		},
+		func() fyne.CanvasObject {
+			return widget.NewLabel("placeholder")
+		},
+		func(id widget.TableCellID, obj fyne.CanvasObject) {
+			label, ok := obj.(*widget.Label)
+			if !ok {
+				return
+			}
+
+			if id.Row == 0 {
+				// Header row
+				label.TextStyle = fyne.TextStyle{Bold: true}
+				switch id.Col {
+				case 0:
+					label.SetText("Parameter")
+				case 1:
+					label.SetText("Estimate")
+				case 2:
+					if showCV {
+						label.SetText("%CV")
+					}
+				}
+
+				return
+			}
+
+			// Data rows
+			label.TextStyle = fyne.TextStyle{}
+			paramIdx := id.Row - 1
+			if paramIdx >= len(params) {
+				label.SetText("")
+
+				return
+			}
+
+			param := params[paramIdx]
+			switch id.Col {
+			case 0:
+				label.SetText(param.Name)
+			case 1:
+				if param.Estimate != nil {
+					label.SetText(fmt.Sprintf("%.4g", *param.Estimate))
+				} else {
+					label.SetText("-")
+				}
+			case 2:
+				if showCV && param.Estimate != nil && *param.Estimate > 0 {
+					// %CV = sqrt(variance) * 100 for OMEGA diagonal elements
+					cv := 100.0 * math.Sqrt(*param.Estimate)
+					label.SetText(fmt.Sprintf("%.1f%%", cv))
+				} else if showCV {
+					label.SetText("-")
+				}
+			}
+		},
+	)
+
+	// Set column widths - these are minimums, table will expand to fill space
+	table.SetColumnWidth(0, 150) // Parameter name
+	table.SetColumnWidth(1, 150) // Estimate
+	if showCV {
+		table.SetColumnWidth(2, 100) // %CV
+	}
+
+	// Calculate height based on number of rows (header + data)
+	rowHeight := float32(30)
+	tableHeight := rowHeight * float32(len(params)+1)
+	if tableHeight < 60 {
+		tableHeight = 60 // Minimum height
+	}
+	if tableHeight > 250 {
+		tableHeight = 250 // Max height before scroll
+	}
+
+	// Wrap in scroll container with controlled height, allowing width expansion
+	scroll := container.NewVScroll(table)
+	scroll.SetMinSize(fyne.NewSize(0, tableHeight))
+
+	return scroll
+}
+
+// createStatusLabel creates a label with checkmark or X based on boolean status.
+func createStatusLabel(status bool) *widget.Label {
+	label := widget.NewLabel("")
+	if status {
+		label.SetText("✓ Yes")
+		label.Importance = widget.SuccessImportance
+	} else {
+		label.SetText("✗ No")
+		label.Importance = widget.DangerImportance
+	}
+
+	return label
+}
+
+// formatOFV formats the objective function value for display.
+func formatOFV(ofv *float64) string {
+	if ofv == nil {
+		return "-"
+	}
+
+	return fmt.Sprintf("%.2f", *ofv)
+}
+
+// showFileWindow opens a separate window to display a file from the run record.
+func (a *App) showFileWindow(run *runlog.RunRecord, title, fileType string) {
+	// Create new window for file display
+	window := a.fyneApp.NewWindow(fmt.Sprintf("%s - Run #%s", title, shortRunID(run.ID)))
+	window.Resize(fyne.NewSize(800, 600))
+
+	// Load content synchronously (fast for embedded files)
+	var content string
+
+	if fileType == "description" {
+		content, _ = run.GetDescription()
+		if content == "" {
+			content = run.Description
+		}
+	} else {
+		// It's an embedded file
+		data, err := runlog.ExtractEmbeddedFile(run, fileType)
+		if err != nil {
+			content = fmt.Sprintf("Error: %v", err)
+		} else {
+			content = string(data)
+		}
+	}
+
+	// Create read-only text display using RichText for better performance
+	richText := widget.NewRichTextFromMarkdown("```\n" + content + "\n```")
+	richText.Wrapping = fyne.TextWrapWord
+
+	// Create scrollable container
+	scroll := container.NewScroll(richText)
+
+	// Add close button
+	closeBtn := widget.NewButton("Close", func() {
+		window.Close()
+	})
+
+	// Main layout
+	windowContent := container.NewBorder(
+		nil,
+		container.NewHBox(widget.NewLabel(""), closeBtn), // Right-aligned close button
+		nil,
+		nil,
+		scroll,
+	)
+
+	window.SetContent(windowContent)
+	window.Show()
 }
 
 // exportRunFiles exports all embedded files from a run record to a zip archive.
-func (a *App) exportRunFiles(run *audit.RunRecord) {
+func (a *App) exportRunFiles(run *runlog.RunRecord) {
 	// Get model name from model file path
 	modelName := strings.TrimSuffix(filepath.Base(run.ModelFile), filepath.Ext(run.ModelFile))
-	defaultFileName := fmt.Sprintf("%s_run%d.zip", modelName, run.ID)
+	defaultFileName := fmt.Sprintf("%s_run_%s.zip", modelName, shortRunID(run.ID))
 
 	// Show directory picker dialog
 	dialog.ShowFolderOpen(func(dir fyne.ListableURI, err error) {
@@ -891,14 +2426,14 @@ func (a *App) exportRunFiles(run *audit.RunRecord) {
 			if err := a.createRunFilesZip(run, modelName, file); err != nil {
 				a.sendError(fmt.Errorf("failed to create zip archive: %w", err))
 			} else {
-				a.showSuccessToast(fmt.Sprintf("Exported run #%d files to %s", run.ID, zipPath))
+				a.showSuccessToast(fmt.Sprintf("Exported run #%s files to %s", shortRunID(run.ID), zipPath))
 			}
 		}()
 	}, a.window)
 }
 
 // createRunFilesZip creates a zip archive containing all embedded files from a run.
-func (a *App) createRunFilesZip(run *audit.RunRecord, modelName string, writer io.Writer) error {
+func (a *App) createRunFilesZip(run *runlog.RunRecord, modelName string, writer io.Writer) error {
 	zipWriter := zip.NewWriter(writer)
 	defer zipWriter.Close()
 
@@ -907,7 +2442,6 @@ func (a *App) createRunFilesZip(run *audit.RunRecord, modelName string, writer i
 	if hasDescription {
 		description, err := run.GetDescription()
 		if err != nil {
-			log.Printf("Failed to decompress description: %v", err)
 			description = run.Description
 		}
 
@@ -924,24 +2458,21 @@ func (a *App) createRunFilesZip(run *audit.RunRecord, modelName string, writer i
 		}
 	}
 
-	// Add all embedded files
-	extensions := audit.GetEmbeddedFileExtensions(run)
-	for _, ext := range extensions {
-		content, err := audit.ExtractEmbeddedFile(run, ext)
+	// Add all embedded files (keyed by their real filename).
+	names := runlog.GetEmbeddedFileNames(run)
+	for _, name := range names {
+		content, err := runlog.ExtractEmbeddedFile(run, name)
 		if err != nil {
-			log.Printf("Failed to extract embedded file %s: %v", ext, err)
-
 			continue
 		}
 
-		fileName := fmt.Sprintf("%s.%s", modelName, ext)
-		fileWriter, err := zipWriter.Create(fileName)
+		fileWriter, err := zipWriter.Create(name)
 		if err != nil {
-			return fmt.Errorf("failed to create zip entry for %s: %w", fileName, err)
+			return fmt.Errorf("failed to create zip entry for %s: %w", name, err)
 		}
 
 		if _, err := fileWriter.Write(content); err != nil {
-			return fmt.Errorf("failed to write %s to zip: %w", fileName, err)
+			return fmt.Errorf("failed to write %s to zip: %w", name, err)
 		}
 	}
 
@@ -953,74 +2484,14 @@ func (a *App) showSettingsPanel() {
 		return // Settings already open
 	}
 
-	// Create settings window
-	settingsWindow := a.fyneApp.NewWindow("Settings")
-	settingsWindow.Resize(fyne.NewSize(400, 300))
+	a.settingsOpen = true
+	settingsDialog := NewSettingsDialog(a)
+	settingsDialog.Show()
 
-	// Settings content from configuration
-	appVersion := "dev"
-	user := "unknown"
-	organization := "BigPharma LLC"
-	defaultDir := "~/models"
-	nonmemPath := "/opt/NONMEM/nm76/run"
-	nonmemBinary := "nmfe76"
-	scheduler := "SLURM"
-	executionMode := "NONMEM"
-	validationIQ := "~/.config/janus/validation/iq-report.json"
-	validationOQ := "~/.config/janus/validation/oq-report.json"
-
-	if a.config != nil {
-		appVersion = a.config.Version
-		user = a.config.User
-		organization = a.config.Organization
-		defaultDir = a.config.DefaultDirectory
-		nonmemPath = a.config.NonmemPath
-		nonmemBinary = a.config.NonmemBinary
-		scheduler = a.config.Scheduler
-		executionMode = a.config.ExecutionMode
-		validationIQ = a.config.Validation.IQ
-		validationOQ = a.config.Validation.OQ
-	}
-
-	versionLabel := widget.NewLabel(fmt.Sprintf("Version: %s", appVersion))
-
-	validationSection := container.NewVBox(
-		widget.NewLabel("CFR 21 Part 11 Validation:"),
-		widget.NewLabel(fmt.Sprintf("IQ Report: %s", validationIQ)),
-		widget.NewLabel(fmt.Sprintf("OQ Report: %s", validationOQ)),
-	)
-
-	userSection := container.NewVBox(
-		widget.NewLabel(fmt.Sprintf("User: %s", user)),
-		widget.NewLabel(fmt.Sprintf("Organization: %s", organization)),
-		widget.NewLabel(fmt.Sprintf("Default Directory: %s", defaultDir)),
-	)
-
-	nonmemSection := container.NewVBox(
-		widget.NewLabel("NONMEM Configuration:"),
-		widget.NewLabel(fmt.Sprintf("Path: %s", nonmemPath)),
-		widget.NewLabel(fmt.Sprintf("Binary: %s", nonmemBinary)),
-		widget.NewLabel(fmt.Sprintf("Execution Mode: %s", executionMode)),
-		widget.NewLabel(fmt.Sprintf("Scheduler: %s", scheduler)),
-	)
-
-	settingsContent := container.NewVBox(
-		versionLabel,
-		widget.NewSeparator(),
-		validationSection,
-		widget.NewSeparator(),
-		userSection,
-		widget.NewSeparator(),
-		nonmemSection,
-	)
-
-	settingsWindow.SetContent(settingsContent)
-	settingsWindow.SetOnClosed(func() {
+	// Update settingsOpen when dialog closes (must be after Show() creates the window)
+	settingsDialog.window.SetOnClosed(func() {
 		a.settingsOpen = false
 	})
-
-	a.settingsOpen = true
-	settingsWindow.Show()
 }
 
 func (a *App) setModelLoaded(loaded bool) {
@@ -1058,19 +2529,33 @@ func (a *App) setModelLoaded(loaded bool) {
 		}
 	}
 
-	if a.runHereBtn != nil {
+	if a.runBtn != nil {
 		if loaded {
-			a.runHereBtn.Enable()
+			a.runBtn.Enable()
 		} else {
-			a.runHereBtn.Disable()
+			a.runBtn.Disable()
 		}
 	}
 
-	if a.runGridBtn != nil {
+	if a.targetRadio != nil {
 		if loaded {
-			a.runGridBtn.Enable()
+			a.targetRadio.Enable()
 		} else {
-			a.runGridBtn.Disable()
+			a.targetRadio.Disable()
+		}
+	}
+
+	if a.hermesConfigBtn != nil {
+		// Show Hermes config button only in Hermes mode
+		if a.config != nil && a.config.ExecutionMode == config.ExecutionModeHERMES {
+			a.hermesConfigBtn.Show()
+			if loaded {
+				a.hermesConfigBtn.Enable()
+			} else {
+				a.hermesConfigBtn.Disable()
+			}
+		} else {
+			a.hermesConfigBtn.Hide()
 		}
 	}
 
@@ -1093,9 +2578,36 @@ func (a *App) setModelLoaded(loaded bool) {
 		}
 	}
 
+	// Update custom model editor
+	if a.nonmemEditor != nil {
+		// Direct access to editor (no longer wrapped in scroll container)
+		if modelEditor, ok := a.nonmemEditor.(*editor.ModelEditor); ok {
+			if loaded {
+				modelEditor.Enable()
+				modelEditor.SetText(a.fileContent)
+				// Request focus after loading content
+				if a.window != nil && a.window.Canvas() != nil {
+					a.window.Canvas().Focus(modelEditor)
+				}
+			} else {
+				modelEditor.Disable()
+				modelEditor.SetText("// Load a model file to begin editing...")
+			}
+		}
+	}
+
 	// Note: Fyne doesn't support disabling individual tabs
 	// The Run History tab will remain available but could show a message
 	// when accessed without a loaded model
+
+	// Update run button styling based on license state
+	if loaded {
+		a.updateRunButtonState()
+	}
+
+	// Reflect the (un)loaded model in the command preview and retain summary.
+	a.refreshCommandPreview()
+	a.refreshRetainInfo()
 }
 
 // LoadModelFile is a public method that loads a model file and sets up the GUI accordingly.
@@ -1129,10 +2641,37 @@ func (a *App) loadModelFile(filePath string) error {
 		return fmt.Errorf("failed to read file: %w", err)
 	}
 
-	// Store the file information
+	// Store the file information (currentFilePath is guarded because MCP HTTP
+	// goroutines read it via resolveRunLogStore).
+	a.modelMu.Lock()
 	a.currentFilePath = filePath
+	a.modelMu.Unlock()
 	a.fileContent = string(content)
 	a.fileHash = sha256.Sum256(content)
+
+	// Detect model category for multi-modal support
+	detector := category.NewDetector()
+	detectedCategory, detectErr := detector.Detect(filePath)
+	if detectErr != nil {
+		log.Printf("Warning: failed to detect model category: %v", detectErr)
+		a.currentModelCategory = category.CategoryUnknown
+	} else {
+		a.currentModelCategory = detectedCategory
+		log.Printf("Detected model category: %s", detectedCategory)
+	}
+
+	// Set the appropriate lexer based on detected model category
+	if modelEditor, ok := a.nonmemEditor.(*editor.ModelEditor); ok {
+		lexer := editor.LexerForCategory(a.currentModelCategory)
+		modelEditor.SetLexer(lexer)
+		log.Printf("Set editor lexer: %s", lexer.Name())
+	}
+
+	// Check if required modeling software license exists
+	a.modelingLicenseFound, a.modelingLicenseMessage = a.checkModelingLicense(a.currentModelCategory)
+	if !a.modelingLicenseFound {
+		log.Printf("Modeling license check: %s", a.modelingLicenseMessage)
+	}
 
 	// Set up model-specific run history
 	a.setupModelRunHistory(filePath)
@@ -1141,15 +2680,17 @@ func (a *App) loadModelFile(filePath string) error {
 	// This ensures run history is available if the user wants to view it
 	a.createRunDetailsTab()
 
-	// Parse and update the $DATA variable
+	// Parse and update the $DATA variable (for NONMEM models)
 	dataValue, hasData := a.parseDataVariableWithValidation(a.fileContent)
 	if a.dataEntry != nil {
 		a.dataEntry.SetText(dataValue)
 	}
 
-	// Show warning if this doesn't appear to be a NONMEM model
-	if !hasData {
-		a.showWarningToast("This does not appear to be a NONMEM model - no $DATA section found.")
+	// Show category-appropriate warnings
+	if a.currentModelCategory == category.CategoryUnknown {
+		a.showWarningToast("Unknown model type - syntax highlighting and execution may be limited.")
+	} else if a.currentModelCategory == category.CategoryNONMEM && !hasData {
+		a.showWarningToast("NONMEM model detected but no $DATA section found.")
 	}
 
 	// Start file watching
@@ -1171,8 +2712,14 @@ func (a *App) saveModelFile() error {
 		return fmt.Errorf("no file loaded")
 	}
 
-	// Get the current content from the text editor
-	content := a.textEditor.Text
+	// Get the current content from the model editor (or legacy text editor as fallback)
+	var content string
+	if modelEditor, ok := a.nonmemEditor.(*editor.ModelEditor); ok {
+		content = modelEditor.GetText()
+	} else {
+		// Fallback to legacy editor if type assertion fails
+		content = a.textEditor.Text
+	}
 
 	// Write the content to the file
 	err := os.WriteFile(a.currentFilePath, []byte(content), 0600)
@@ -1186,6 +2733,11 @@ func (a *App) saveModelFile() error {
 	dataValue, _ := a.parseDataVariableWithValidation(a.fileContent)
 	if a.dataEntry != nil {
 		a.dataEntry.SetText(dataValue)
+	}
+
+	// Clear dirty state after successful save
+	if modelEditor, ok := a.nonmemEditor.(*editor.ModelEditor); ok {
+		modelEditor.ClearDirtyState()
 	}
 
 	return nil
@@ -1252,6 +2804,14 @@ func (a *App) reloadFileContent(newContent string) {
 	// Update UI on the main thread
 	if a.textEditor != nil {
 		a.textEditor.SetText(newContent)
+	}
+
+	// Update custom model editor
+	if a.nonmemEditor != nil {
+		// Direct access to editor (no longer wrapped in scroll container)
+		if modelEditor, ok := a.nonmemEditor.(*editor.ModelEditor); ok {
+			modelEditor.SetText(newContent)
+		}
 	}
 
 	// Parse and update the $DATA variable
@@ -1368,9 +2928,248 @@ func (a *App) validateCoresInputSilent(text string) {
 	}
 }
 
+// onRunClicked dispatches a run based on the selected execution target.
+func (a *App) onRunClicked() {
+	// SCM cannot run without a config file.
+	psnMode := a.config != nil && a.config.ExecutionMode == config.ExecutionModePSN
+	if a.psnForm != nil && psnMode && a.psnForm.scmConfigMissing(a.selectedPSNFunction()) {
+		dialog.ShowError(fmt.Errorf("SCM requires a config file (set it in the SCM parameters)"), a.window)
+
+		return
+	}
+
+	switch a.targetRadio.Selected {
+	case "Scheduler":
+		a.runRemote = false
+		a.showGridConfigurationModal()
+	case "SSH":
+		a.runRemote = true
+		a.executeRun(false)
+	default: // Here
+		a.runRemote = false
+		a.executeRun(false)
+	}
+}
+
+// refreshTargetOptions gates the execution-target options by execution mode and
+// remote configuration, and shows the Hermes config button only in HERMES mode.
+func (a *App) refreshTargetOptions() {
+	if a.targetRadio == nil {
+		return
+	}
+
+	mode := ""
+	remoteConfigured := false
+
+	if a.config != nil {
+		mode = a.config.ExecutionMode
+		remoteConfigured = a.config.Remote.Host != ""
+	}
+
+	options := []string{"Here"}
+
+	switch mode {
+	case config.ExecutionModeNONMEM, config.ExecutionModePSN:
+		options = append(options, "Scheduler")
+		if remoteConfigured {
+			options = append(options, "SSH")
+		}
+	}
+
+	a.targetRadio.Options = options
+	if !slices.Contains(options, a.targetRadio.Selected) {
+		a.targetRadio.SetSelected("Here")
+	}
+
+	a.targetRadio.Refresh()
+
+	if a.hermesConfigBtn != nil {
+		if mode == config.ExecutionModeHERMES {
+			a.hermesConfigBtn.Show()
+		} else {
+			a.hermesConfigBtn.Hide()
+		}
+	}
+
+	// Engine/target changes (e.g. after a settings save) change the command and
+	// the retained-files summary.
+	a.refreshCommandPreview()
+	a.refreshRetainInfo()
+}
+
+// currentModelRetain resolves the retain globs of the current model's output
+// files of interest, and a short label for where they come from: the model's own
+// .janus.config.json retain, else the global default, else the NONMEM defaults.
+// Retain is a model-wide property, so this reads it via LoadModelRetain (no Hermes
+// validation) and surfaces it for any loaded model, not just Hermes runs.
+func (a *App) currentModelRetain() (globs []string, source string) {
+	if a.currentFilePath != "" {
+		if modelRetain := config.LoadModelRetain(a.currentFilePath); len(modelRetain) > 0 {
+			return modelRetain, "this model"
+		}
+	}
+
+	if a.config != nil && len(a.config.Hermes.Retain) > 0 {
+		return a.config.Hermes.Retain, "global default"
+	}
+
+	return config.DefaultNONMEMRetain(), "NONMEM defaults"
+}
+
+// refreshRetainInfo updates the primary-window "Output files of interest"
+// summary. Retain is a model-wide property (it drives run-log embedding for every
+// run, not just Hermes), so this is shown for any loaded model.
+func (a *App) refreshRetainInfo() {
+	if a.retainInfoBox == nil || a.retainGlobsLabel == nil {
+		return
+	}
+
+	if a.currentFilePath == "" {
+		a.retainInfoBox.Hide()
+
+		return
+	}
+
+	globs, source := a.currentModelRetain()
+	a.retainGlobsLabel.SetText(fmt.Sprintf("%s\n(source: %s — collected after a run and embedded in the run log)", strings.Join(globs, ", "), source))
+	a.retainInfoBox.Show()
+}
+
+// showEditRetainDialog opens a small editor for the current model's output files
+// of interest (its retain globs). It writes the model-wide ModelConfig.Retain via
+// saveModelRetain, which works for any model — Hermes or not.
+func (a *App) showEditRetainDialog() {
+	if a.currentFilePath == "" {
+		dialog.ShowInformation("No Model Loaded", "Load a model first to edit its output files of interest.", a.window)
+
+		return
+	}
+
+	seed, _ := a.currentModelRetain()
+	editor := newStringListEditor("Add retain glob", "e.g. *.lst", seed...)
+
+	content := container.NewVBox(
+		widget.NewLabel("Glob patterns for this model's output files of interest.\nThese files are collected after a run and embedded in the run log."),
+		editor.widget(),
+	)
+
+	d := dialog.NewCustomConfirm("Output Files of Interest", "Save", "Cancel", content, func(save bool) {
+		if !save {
+			return
+		}
+
+		if err := a.saveModelRetain(a.currentFilePath, editor.items()); err != nil {
+			dialog.ShowError(fmt.Errorf("failed to save output files: %w", err), a.window)
+
+			return
+		}
+
+		a.refreshRetainInfo()
+		a.showSuccessToast(fmt.Sprintf("Saved output files of interest for %s", filepath.Base(a.currentFilePath)))
+	}, a.window)
+
+	d.Resize(fyne.NewSize(520, 420))
+	d.Show()
+}
+
+// saveModelRetain writes the model-wide retain list to the model's
+// .janus.config.json, preserving all other settings. It uses LoadModelConfig (no
+// Hermes validation) and starts a fresh config when none exists, so it works for
+// non-Hermes models that only declare their output files.
+func (a *App) saveModelRetain(modelPath string, retain []string) error {
+	cfg, err := config.LoadModelConfig(modelPath)
+	if err != nil || cfg == nil {
+		cfg = &config.ModelConfig{}
+	}
+
+	cfg.Retain = retain
+
+	return config.SaveModelConfig(modelPath, cfg)
+}
+
+// psnDefaultPreset is the run-panel label for the plain PsN execute tool.
+const psnDefaultPreset = "execute (default)"
+
+// refreshPSNPresets populates the PSN analysis-preset picker (shown whenever the
+// PsN engine is selected, for any destination) from the configured presets.
+func (a *App) refreshPSNPresets() {
+	if a.psnPresetSelect == nil || a.psnPresetContainer == nil {
+		return
+	}
+
+	if !a.engineIsPSN() {
+		a.psnPresetContainer.Hide()
+
+		if a.psnForm != nil {
+			a.psnForm.show("")
+		}
+
+		return
+	}
+
+	// Standard PsN analyses (execute is the default), plus any custom presets.
+	options := []string{psnDefaultPreset, "vpc", "bootstrap", "scm"}
+	for _, p := range a.config.PSN.Presets {
+		if p.Name != "" && !slices.Contains(options, p.Name) {
+			options = append(options, p.Name)
+		}
+	}
+
+	a.psnPresetSelect.Options = options
+	if !slices.Contains(options, a.psnPresetSelect.Selected) {
+		a.psnPresetSelect.SetSelected(psnDefaultPreset)
+	}
+
+	a.psnPresetSelect.Refresh()
+	a.psnPresetContainer.Show()
+
+	if a.psnForm != nil {
+		a.psnForm.show(a.selectedPSNFunction())
+	}
+}
+
+// engineIsPSN reports whether the PsN engine is selected. It reads the Engine
+// axis (always populated at runtime by normalizeExecutionAxes), falling back to
+// the legacy ExecutionMode for configs/tests that set only the flat field. The
+// engine — not the derived ExecutionMode — is the right gate: Engine=PSN with the
+// Hermes destination derives ExecutionMode=HERMES, but the run is still PsN (e.g.
+// the bootstrap saga), so the analysis picker must stay visible.
+func (a *App) engineIsPSN() bool {
+	if a.config == nil {
+		return false
+	}
+
+	if a.config.Engine != "" {
+		return a.config.Engine == config.EnginePSN
+	}
+
+	return a.config.ExecutionMode == config.ExecutionModePSN
+}
+
+// selectedPSNFunction returns the chosen PsN analysis (built-in or preset name),
+// or "" for the plain execute default.
+func (a *App) selectedPSNFunction() string {
+	if a.psnPresetSelect == nil {
+		return ""
+	}
+
+	if s := a.psnPresetSelect.Selected; s != "" && s != psnDefaultPreset {
+		return s
+	}
+
+	return ""
+}
+
 func (a *App) executeRun(isGrid bool) {
 	if a.currentFilePath == "" {
 		dialog.ShowError(fmt.Errorf("no model file loaded"), a.window)
+
+		return
+	}
+
+	// Check if modeling software license is available
+	if !a.modelingLicenseFound {
+		dialog.ShowError(fmt.Errorf("cannot execute model:\n\n%s", a.modelingLicenseMessage), a.window)
 
 		return
 	}
@@ -1402,6 +3201,55 @@ func (a *App) executeRun(isGrid bool) {
 }
 
 func (a *App) executeRunWithDescription(isGrid, isParallel bool, cores int, description string) {
+	// Point the active NONMEM install at the selected version (no-op unless
+	// multiple installations are configured).
+	a.applySelectedInstallation()
+
+	// Hermes mode doesn't support grid execution (container-only)
+	if isGrid && a.config != nil && a.config.ExecutionMode == config.ExecutionModeHERMES {
+		dialog.ShowError(fmt.Errorf("hermes execution mode does not support grid execution - it runs in local containers only"), a.window)
+
+		return
+	}
+
+	// Validate NONMEM license at execution time (if required by execution mode)
+	if a.config != nil && config.RequiresNONMEMLicense(a.config.ExecutionMode) {
+		_, err := config.ValidateNONMEMLicenseForExecution(a.config)
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("cannot execute model: %w", err), a.window)
+
+			return
+		}
+	}
+
+	// Check for Hermes config BEFORE creating run record
+	if a.config != nil && a.config.ExecutionMode == config.ExecutionModeHERMES {
+		// Check if .janus.config.json exists
+		factory := execution.NewExecutorFactory(a.config)
+		_, err := factory.CreateHermesExecutor(a.currentFilePath)
+
+		// If config missing, show dialog and don't create run record yet
+		if err != nil && (os.IsNotExist(err) || strings.Contains(err.Error(), "hermes execution requires .janus.config.json")) {
+			a.showHermesConfigDialog(a.currentFilePath,
+				// onSuccess: Retry execution after config created
+				func() {
+					a.executeRunWithDescription(isGrid, isParallel, cores, description)
+				},
+				// onCancel: Do nothing (no run record to clean up)
+				nil,
+			)
+
+			return
+		}
+
+		// If other error, show it
+		if err != nil {
+			dialog.ShowError(fmt.Errorf("failed to create Hermes executor: %w", err), a.window)
+
+			return
+		}
+	}
+
 	// Get additional NONMEM options if execution mode is NONMEM
 	var nonmemOptions *string
 	if a.config != nil && a.config.ExecutionMode == "NONMEM" && a.nonmemOptionsEntry != nil {
@@ -1441,23 +3289,50 @@ func (a *App) generatePnmFile(cores int) error {
 		return fmt.Errorf("no model file loaded")
 	}
 
-	// Generate .pnm file path (same directory, same name but .pnm extension)
-	modelDir := filepath.Dir(a.currentFilePath)
-	modelName := strings.TrimSuffix(filepath.Base(a.currentFilePath), filepath.Ext(a.currentFilePath))
-	pnmPath := filepath.Join(modelDir, modelName+".pnm")
+	return mcpservice.WritePnmFile(a.currentFilePath, cores)
+}
 
-	// Create .pnm file content (NONMEM parallel configuration)
-	// Following BBI's approach with ORTE-based parallel execution
-	pnmContent := fmt.Sprintf(`$GENERAL
-NODES=%d PARSE_TYPE=2 TIMEOUTI=100 TIMEOUT=2400 PARAPRINT=0 TRANSFER_TYPE=1
-`, cores)
+// isNonmemModeName reports whether an execution mode uses a local NONMEM
+// installation (and thus the per-run version picker).
+func isNonmemModeName(mode string) bool {
+	switch mode {
+	case config.ExecutionModeNONMEM, config.ExecutionModeBBI, config.ExecutionModePSN:
+		return true
+	default:
+		return false
+	}
+}
 
-	// Write .pnm file
-	if err := os.WriteFile(pnmPath, []byte(pnmContent), 0600); err != nil {
-		return fmt.Errorf("failed to write .pnm file: %w", err)
+// refreshVersionSelect repopulates the per-run NONMEM version picker, showing it
+// only when multiple installations are configured for a NONMEM-style mode.
+func (a *App) refreshVersionSelect() {
+	if a.versionSelect == nil || a.versionContainer == nil {
+		return
 	}
 
-	return nil
+	if a.config == nil || len(a.config.Installations) == 0 || !isNonmemModeName(a.config.ExecutionMode) {
+		a.versionContainer.Hide()
+
+		return
+	}
+
+	a.versionSelect.Options = a.config.InstallationNames()
+	a.versionSelect.SetSelected(a.config.DefaultNonmemInstallation().Name)
+	a.versionContainer.Show()
+}
+
+// applySelectedInstallation points the active NONMEM path/binary at the
+// installation chosen in the version picker, just before a run. It is a no-op
+// unless multiple installations are configured and one is selected.
+func (a *App) applySelectedInstallation() {
+	if a.versionSelect == nil || a.config == nil || a.versionSelect.Selected == "" {
+		return
+	}
+
+	if inst, ok := a.config.NonmemInstallation(a.versionSelect.Selected); ok {
+		a.config.NonmemPath = inst.Path
+		a.config.NonmemBinary = inst.Binary
+	}
 }
 
 func (a *App) showToast(title, message string, duration time.Duration) {
@@ -1466,35 +3341,49 @@ func (a *App) showToast(title, message string, duration time.Duration) {
 		return
 	}
 
-	// Create toast content with title and message
-	titleLabel := widget.NewLabelWithStyle(title, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	messageLabel := widget.NewLabel(message)
-	messageLabel.Wrapping = fyne.TextWrapWord
+	// All UI operations must be on the main thread
+	fyne.Do(func() {
+		// Create toast content with title and message
+		titleLabel := widget.NewLabelWithStyle(title, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+		messageLabel := widget.NewLabel(message)
+		messageLabel.Wrapping = fyne.TextWrapWord
 
-	content := container.NewVBox(
-		titleLabel,
-		messageLabel,
-	)
+		content := container.NewVBox(
+			titleLabel,
+			messageLabel,
+		)
 
-	// Create popup with padding
-	paddedContent := container.NewPadded(content)
-	popup := widget.NewPopUp(paddedContent, a.window.Canvas())
+		// Create popup with padding
+		paddedContent := container.NewPadded(content)
+		popup := widget.NewPopUp(paddedContent, a.window.Canvas())
 
-	// Position at top-right corner
-	canvasSize := a.window.Canvas().Size()
-	toastWidth := float32(300)
-	toastHeight := float32(80)
-	popup.Resize(fyne.NewSize(toastWidth, toastHeight))
-	popup.ShowAtPosition(fyne.NewPos(canvasSize.Width-toastWidth-20, 20))
+		// Position at top-right corner
+		canvasSize := a.window.Canvas().Size()
+		toastWidth := float32(300)
+		toastHeight := float32(80)
+		popup.Resize(fyne.NewSize(toastWidth, toastHeight))
+		popup.ShowAtPosition(fyne.NewPos(canvasSize.Width-toastWidth-20, 20))
 
-	// Auto-dismiss after duration
-	time.AfterFunc(duration, func() {
-		popup.Hide()
+		// Auto-dismiss after duration
+		// Use a separate goroutine to avoid blocking, but protect against race conditions
+		go func() {
+			time.Sleep(duration)
+			// Check if popup is still valid before hiding (UI update must be on main thread)
+			// This prevents panic if the popup was already hidden or the window closed
+			fyne.Do(func() {
+				//nolint:staticcheck // SA9003: intentionally empty - silently ignore panic from hiding already-hidden popup
+				defer func() {
+					if r := recover(); r != nil {
+					}
+				}()
+				popup.Hide()
+			})
+		}()
 	})
 }
 
 func (a *App) showSuccessToast(message string) {
-	a.showToast("SUCCESS", message, 3*time.Second)
+	a.showToast("SUCCESS", message, 500*time.Millisecond)
 }
 
 func (a *App) showInfoToast(title, message string) {
@@ -1506,11 +3395,58 @@ func (a *App) showWarningToast(message string) {
 }
 
 // buildActualExecutionCommand builds the actual command string that will be executed
-// using the same logic as the executor to ensure audit trail accuracy.
+// using the same logic as the executor to ensure run log accuracy.
+// refreshCommandPreview updates the inline command preview to mirror what the
+// current run-panel selections will run and record. It is a no-op until the
+// preview widget exists, and shows a placeholder until a model is loaded.
+func (a *App) refreshCommandPreview() {
+	if a.commandPreview == nil {
+		return
+	}
+
+	if a.currentFilePath == "" {
+		a.commandPreview.SetText("(load a model to preview the command)")
+
+		return
+	}
+
+	// Reflect the per-run NONMEM installation choice so the previewed binary
+	// path matches what will actually run (idempotent; no-op without versions).
+	a.applySelectedInstallation()
+
+	isGrid := a.targetRadio != nil && a.targetRadio.Selected == "Scheduler"
+	isParallel := a.syncRadio != nil && a.syncRadio.Selected == "Parallel"
+
+	cores := 1
+	if isParallel && a.coresEntry != nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(a.coresEntry.Text)); err == nil && n > 0 {
+			cores = n
+		}
+	}
+
+	var nonmemOptions *string
+	if a.nonmemOptionsEntry != nil {
+		if opts := strings.TrimSpace(a.nonmemOptionsEntry.Text); opts != "" {
+			nonmemOptions = &opts
+		}
+	}
+
+	a.commandPreview.SetText(a.buildActualExecutionCommand(isGrid, isParallel, cores, nonmemOptions))
+}
+
 func (a *App) buildActualExecutionCommand(isGrid, isParallel bool, cores int, nonmemOptions *string) string {
 	// Handle different execution modes
 	if a.config == nil {
 		return fmt.Sprintf("nonmem %s", filepath.Base(a.currentFilePath))
+	}
+
+	// Any PsN-engine run with a selected analysis records the PsN command the user
+	// invoked (e.g. "vpc acop.mod -samples=200"), not a NONMEM command — even when
+	// the destination is Hermes (which derives ExecutionMode=HERMES) or it's the
+	// bootstrap saga. Reuse the canonical PsN command builder so the run-log row
+	// mirrors the real dispatch (and the result-reopen button can detect the tool).
+	if a.engineIsPSN() && a.selectedPSNFunction() != "" {
+		return a.buildPSNCommandString(isParallel, cores, isGrid, nil)
 	}
 
 	var additionalOptions []string
@@ -1626,35 +3562,31 @@ func (a *App) buildBBICommandString(isParallel bool, cores int, isGrid bool, add
 // buildPSNCommandString builds the command string for PSN execution.
 func (a *App) buildPSNCommandString(isParallel bool, cores int, isGrid bool, additionalOptions []string) string {
 	// Use absolute path for grid execution
-	var modelPath string
+	modelPath := a.currentFilePath
 	if isGrid {
 		if absModelPath, err := filepath.Abs(a.currentFilePath); err == nil {
 			modelPath = absModelPath
-		} else {
-			modelPath = a.currentFilePath
 		}
-	} else {
-		modelPath = a.currentFilePath
 	}
 
-	args := []string{"execute", modelPath}
+	// Reflect the selected PsN analysis (vpc / bootstrap / scm / preset) and its
+	// typed parameters, mirroring the real RunFunction dispatch. The function's
+	// args precede the free-form additional options.
+	fn := a.selectedPSNFunction()
 
-	// Add parallel execution options
-	if isParallel && cores > 1 {
-		args = append(args, fmt.Sprintf("-threads=%d", cores))
+	psnArgs := additionalOptions
+	if fn != "" && a.psnForm != nil {
+		psnArgs = append(a.psnForm.args(fn), additionalOptions...)
 	}
 
-	// Add grid execution options
-	if isGrid {
-		args = append(args, "-slurm")
+	if psnExec, ok := execution.NewPSNExecutor(a.config).(*execution.PSNExecutor); ok {
+		if binary, args, err := psnExec.BuildFunctionCommand(fn, modelPath, isParallel, cores, isGrid, psnArgs); err == nil {
+			return strings.Join(append([]string{binary}, args...), " ")
+		}
 	}
 
-	// Add additional options
-	if additionalOptions != nil {
-		args = append(args, additionalOptions...)
-	}
-
-	return strings.Join(args, " ")
+	// Fallback: plain execute (e.g. config unavailable).
+	return strings.Join(append([]string{"execute", modelPath}, additionalOptions...), " ")
 }
 
 // splitCommand splits a command string into binary and arguments for table display.
@@ -1672,28 +3604,32 @@ func (a *App) splitCommand(command string) (binary string, args string) {
 	return binary, args
 }
 
-func (a *App) createRunRecord(isGrid, isParallel bool, cores int, description *string, nonmemOptions *string) *audit.RunRecord {
+func (a *App) createRunRecord(isGrid, isParallel bool, cores int, description *string, nonmemOptions *string) *runlog.RunRecord {
 	// Build the actual command that will be executed using the same logic as the executor
 	command := a.buildActualExecutionCommand(isGrid, isParallel, cores, nonmemOptions)
 
-	runRecord := &audit.RunRecord{
-		ID:         a.getNextRunID(),
-		Timestamp:  time.Now(),
+	runRecord := &runlog.RunRecord{
+		// ID and Timestamp will be set by RunLogStore.AddRun if not provided
 		ModelFile:  a.currentFilePath,
 		Command:    command,
 		ExitCode:   -1, // Not completed yet
-		Stdout:     "",
-		Stderr:     "",
 		IsParallel: isParallel,
 		Cores:      cores,
 		IsGrid:     isGrid,
 		Status:     "running",
 	}
 
+	// Mark a bootstrap saga as the saga parent up front (before signing) so its
+	// live "running" record renders the saga progress card — Kind drives that — and
+	// so Kind is covered by the signature from the start rather than only being set
+	// once the saga completes.
+	if psnFn := a.selectedPSNFunction(); execution.IsBootstrapSagaRun(a.localRunConfig(), psnFn) {
+		runRecord.Kind = runlog.KindSaga
+	}
+
 	// Only set description if provided (use compressed storage)
 	if description != nil && *description != "" {
 		if err := runRecord.SetDescription(*description); err != nil {
-			log.Printf("Failed to compress description: %v", err)
 			runRecord.Description = *description // Fallback to uncompressed
 		}
 	}
@@ -1703,11 +3639,15 @@ func (a *App) createRunRecord(isGrid, isParallel bool, cores int, description *s
 		runRecord.NonmemOptions = nonmemOptions
 	}
 
-	// Add to history
-	a.runHistory.Runs = append(a.runHistory.Runs, *runRecord)
+	// Add to store (generates UUID, signs if configured, writes atomically)
+	if a.runLogStore != nil {
+		if err := a.runLogStore.AddRun(runRecord); err != nil {
+			a.sendError(fmt.Errorf("failed to save run record: %w", err))
+		}
+	}
 
-	// Save to JSON file
-	a.saveRunHistory()
+	// Refresh cached runs for table display
+	a.refreshCachedRuns()
 
 	return runRecord
 }
@@ -1747,148 +3687,153 @@ func (a *App) createRunDetailsTab() {
 		}
 	}
 
-	// Create and add Run Details tab without selecting it
-	a.runDetailsTab = container.NewTabItem("Run Details", a.buildRunDetailsTab())
-	a.modelSubTabs.Append(a.runDetailsTab)
+	// UI updates must be on the main thread
+	fyne.Do(func() {
+		// Create and add Run Details tab without selecting it
+		a.runDetailsTab = container.NewTabItem("Run Details", a.buildRunDetailsTab())
+		a.modelSubTabs.Append(a.runDetailsTab)
 
-	// Refresh the run history table
-	a.runHistoryTable.Refresh()
+		// Refresh the run history table
+		a.runHistoryTable.Refresh()
+	})
 }
 
-func (a *App) updateRunRecord(runID int, exitCode int, stdout, stderr string) {
-	for i, run := range a.runHistory.Runs {
-		if run.ID == runID {
-			a.runHistory.Runs[i].ExitCode = exitCode
-
-			// Use compressed storage for stdout/stderr
-			if err := a.runHistory.Runs[i].SetStdout(stdout); err != nil {
-				log.Printf("Failed to compress stdout for run %d: %v", runID, err)
-				a.runHistory.Runs[i].Stdout = stdout // Fallback to uncompressed
-			}
-			if err := a.runHistory.Runs[i].SetStderr(stderr); err != nil {
-				log.Printf("Failed to compress stderr for run %d: %v", runID, err)
-				a.runHistory.Runs[i].Stderr = stderr // Fallback to uncompressed
-			}
-
-			if exitCode == 0 {
-				a.runHistory.Runs[i].Status = "completed"
-
-				// Embed output files for successful runs
-				if err := audit.EmbedOutputFiles(&a.runHistory.Runs[i], run.ModelFile); err != nil {
-					log.Printf("Failed to embed output files for run %d: %v", runID, err)
-					// Don't fail the run, just log the error
-				}
-			} else {
-				a.runHistory.Runs[i].Status = "failed"
-			}
-
-			break
-		}
+func (a *App) updateRunRecord(runID string, exitCode int, stdout, stderr string, container *runlog.ContainerProvenance) {
+	if a.runLogStore == nil {
+		return
 	}
 
-	// Save updated history
-	a.saveRunHistory()
+	// The retain globs (model's output files of interest) select what gets
+	// embedded in the run log. currentModelRetain resolves per-model → global →
+	// NONMEM default for the loaded model.
+	retain, _ := a.currentModelRetain()
+	if err := mcpservice.ApplyRunResult(a.errorCtx, a.runLogStore, runID, exitCode, stdout, stderr, container, retain); err != nil {
+		a.sendError(err)
+	}
 
-	// Refresh UI if Run Details tab is visible
+	// Refresh cached runs
+	a.refreshCachedRuns()
+
+	// Refresh UI if Run Details tab is visible (must be on main thread)
 	if a.runHistoryTable != nil {
-		a.runHistoryTable.Refresh()
+		fyne.Do(func() {
+			a.runHistoryTable.Refresh()
+		})
 	}
 }
 
 func (a *App) setupModelRunHistory(modelFilePath string) {
-	// Create history file path: same directory as model, same name with .janus_history.json extension
+	// Clear any previous run selections when switching models
+	a.clearRunSelections()
+
 	modelDir := filepath.Dir(modelFilePath)
 	modelName := strings.TrimSuffix(filepath.Base(modelFilePath), filepath.Ext(modelFilePath))
-	historyFile := filepath.Join(modelDir, modelName+".janus_history.json")
 
-	// Update run history file path
-	a.runHistory.HistoryFile = historyFile
+	// Create RunLogStore for this model (guarded; MCP HTTP goroutines read
+	// runLogStore via resolveRunLogStore).
+	a.modelMu.Lock()
+	a.runLogStore = runlog.NewRunLogStore(modelDir, modelName)
+	a.modelMu.Unlock()
 
-	// Load existing history if file exists
-	a.loadRunHistory()
+	// Configure signer if available
+	if a.signer != nil && a.licenseClaims != nil {
+		a.runLogStore.SetSigner(a.signer, a.licenseClaims.UserEmail)
+	}
 
-	// If run history table exists, refresh it to show loaded data
+	// Load existing run logs (creates directory structure if needed)
+	if err := a.runLogStore.Load(); err != nil {
+		a.sendError(fmt.Errorf("failed to load run history: %w", err))
+	}
+
+	// Refresh cached runs for table display
+	a.refreshCachedRuns()
+
+	// If run history table exists, refresh it to show loaded data (must be on main thread)
 	if a.runHistoryTable != nil {
-		a.runHistoryTable.Refresh()
+		fyne.Do(func() {
+			a.runHistoryTable.Refresh()
+		})
 	}
 }
 
-func (a *App) loadRunHistory() {
-	if a.runHistory.HistoryFile == "" {
-		return
-	}
-
-	// Check if history file exists
-	if _, err := os.Stat(a.runHistory.HistoryFile); os.IsNotExist(err) {
-		// File doesn't exist, start with empty history
-		a.runHistory.Runs = []audit.RunRecord{}
-
-		return
-	}
-
-	// Read and parse existing history file
-	data, err := os.ReadFile(a.runHistory.HistoryFile)
-	if err != nil {
-		// Failed to read, start with empty history
-		a.runHistory.Runs = []audit.RunRecord{}
+// refreshCachedRuns updates the local cache of runs for table display. Saga
+// child fits (e.g. the per-resample bootstrap runs, #192) are collapsed out of
+// the top-level history: they carry a ParentID and would otherwise flood the
+// table with one row per fit. The parent saga record stands in for them and the
+// children are reachable from its details view.
+func (a *App) refreshCachedRuns() {
+	if a.runLogStore == nil {
+		a.cachedRuns = []runlog.RunRecord{}
 
 		return
 	}
 
-	// Parse JSON
-	var loadedHistory audit.RunHistory
-	if err := json.Unmarshal(data, &loadedHistory); err != nil {
-		// Failed to parse, start with empty history
-		a.runHistory.Runs = []audit.RunRecord{}
+	all := a.runLogStore.GetAllRuns()
+	top := all[:0:0]
 
-		return
+	for _, run := range all {
+		if run.ParentID != "" {
+			continue
+		}
+
+		top = append(top, run)
 	}
 
-	// Update current history with loaded data
-	a.runHistory.Runs = loadedHistory.Runs
-}
-
-func (a *App) saveRunHistory() {
-	if a.runHistory.HistoryFile == "" {
-		a.sendError(fmt.Errorf("cannot save run history: no file path set"))
-
-		return
-	}
-
-	data, err := json.MarshalIndent(a.runHistory, "", "  ")
-	if err != nil {
-		a.sendError(fmt.Errorf("failed to marshal run history: %w", err))
-
-		return
-	}
-
-	if err := os.WriteFile(a.runHistory.HistoryFile, data, 0600); err != nil {
-		a.sendError(fmt.Errorf("failed to save run history to %s: %w", a.runHistory.HistoryFile, err))
-	}
+	a.cachedRuns = top
 }
 
 func (a *App) buildActiveRunsTable() *fyne.Container {
-	// Get currently running local executions
 	runningLocalRuns := a.getRunningLocalRuns()
-
 	if len(runningLocalRuns) == 0 {
-		return nil // No active runs, don't show table
+		return nil // No active runs, don't show the section
 	}
 
-	// Create table for active runs
+	// A bootstrap saga parent (#192) gets a rich live-progress card; every other
+	// active run stays in the per-run table.
+	var sagaRuns, normalRuns []runlog.RunRecord
+	for _, run := range runningLocalRuns {
+		if run.Kind == runlog.KindSaga {
+			sagaRuns = append(sagaRuns, run)
+		} else {
+			normalRuns = append(normalRuns, run)
+		}
+	}
+
+	// The "Active Local Executions" header must remain the first child:
+	// updateActiveRunsDisplay locates this section for removal by that exact label.
+	header := container.NewHBox(
+		widget.NewLabelWithStyle("Active Local Executions", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+	)
+	content := []fyne.CanvasObject{header}
+
+	for _, sr := range sagaRuns {
+		content = append(content, a.buildSagaProgressCard(sr))
+	}
+
+	if len(normalRuns) > 0 {
+		content = append(content, a.buildNormalActiveRunsTable(normalRuns))
+	}
+
+	content = append(content, widget.NewSeparator(), widget.NewLabel("")) // trailing spacing
+
+	return container.NewVBox(content...)
+}
+
+// buildNormalActiveRunsTable builds the per-run table for non-saga active runs.
+func (a *App) buildNormalActiveRunsTable(runs []runlog.RunRecord) fyne.CanvasObject {
 	a.activeRunsTable = widget.NewTable(
 		func() (int, int) {
-			return len(runningLocalRuns), 6 // rows, columns: Run, Model, Type, Elapsed, Live Output, Cancel
+			return len(runs), 6 // rows, columns: Run, Model, Type, Elapsed, Live Output, Cancel
 		},
 		func() fyne.CanvasObject {
 			return container.NewHBox(widget.NewLabel(""))
 		},
 		func(id widget.TableCellID, obj fyne.CanvasObject) {
-			if id.Row >= len(runningLocalRuns) {
+			if id.Row >= len(runs) {
 				return
 			}
 
-			run := runningLocalRuns[id.Row]
+			run := runs[id.Row]
 			container, ok := obj.(*fyne.Container)
 			if !ok {
 				return
@@ -1899,7 +3844,7 @@ func (a *App) buildActiveRunsTable() *fyne.Container {
 
 			switch id.Col {
 			case 0: // Run ID
-				container.Add(widget.NewLabel(fmt.Sprintf("Run #%d", run.ID)))
+				container.Add(widget.NewLabel(fmt.Sprintf("#%s", shortRunID(run.ID))))
 			case 1: // Model name
 				modelName := filepath.Base(run.ModelFile)
 				container.Add(widget.NewLabel(modelName))
@@ -1931,30 +3876,125 @@ func (a *App) buildActiveRunsTable() *fyne.Container {
 		},
 	)
 
-	// Set column headers
-	a.activeRunsTable.SetColumnWidth(0, 80)  // Run ID
-	a.activeRunsTable.SetColumnWidth(1, 200) // Model name
-	a.activeRunsTable.SetColumnWidth(2, 150) // Execution type
-	a.activeRunsTable.SetColumnWidth(3, 100) // Elapsed time
-	a.activeRunsTable.SetColumnWidth(4, 100) // Live Output button
-	a.activeRunsTable.SetColumnWidth(5, 80)  // Cancel button
+	// Set column widths - sized to fit content without overlap
+	a.activeRunsTable.SetColumnWidth(0, 70)  // Run ID (#XXXXXX)
+	a.activeRunsTable.SetColumnWidth(1, 150) // Model name
+	a.activeRunsTable.SetColumnWidth(2, 130) // Execution type (Parallel (8 cores))
+	a.activeRunsTable.SetColumnWidth(3, 60)  // Elapsed time (XXm XXs)
+	a.activeRunsTable.SetColumnWidth(4, 110) // Live Output button
+	a.activeRunsTable.SetColumnWidth(5, 75)  // Cancel button
 
-	// Create header row
-	headerContainer := container.NewHBox(
-		widget.NewLabelWithStyle("Active Local Executions", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-	)
-
-	return container.NewVBox(
-		headerContainer,
-		a.activeRunsTable,
-		widget.NewSeparator(),
-		widget.NewLabel(""), // Extra spacing
-	)
+	return a.activeRunsTable
 }
 
-func (a *App) getRunningLocalRuns() []audit.RunRecord {
-	var runningRuns []audit.RunRecord
-	for _, run := range a.runHistory.Runs {
+// sagaStageText is the human-readable stage line for a saga progress card.
+func sagaStageText(p execution.SagaProgress) string {
+	switch p.Stage {
+	case execution.SagaStageSetup:
+		return "Stage: Resampling…"
+	case execution.SagaStageFits:
+		return "Stage: Fitting"
+	case execution.SagaStageAggregate:
+		return "Stage: Aggregating…"
+	default:
+		return "Stage: Starting…"
+	}
+}
+
+// sagaCardMaxPods caps how many live pods the progress card lists before
+// summarizing the remainder, so a large fan-out can't grow the card unbounded.
+const sagaCardMaxPods = 10
+
+// buildSagaProgressCard renders the live-progress card for a running bootstrap
+// saga (#192/#197): stage, a k/N progress bar during the fits, the running tally,
+// and the pods Janus is currently driving. The card is rebuilt from the latest
+// snapshot on each ticker tick, so per-pod elapsed and counts stay live.
+func (a *App) buildSagaProgressCard(run runlog.RunRecord) fyne.CanvasObject {
+	a.sagaMu.Lock()
+	p := a.sagaProgress[run.ID]
+	a.sagaMu.Unlock()
+
+	title := widget.NewLabelWithStyle(
+		fmt.Sprintf("Active Execution — Bootstrap #%s", shortRunID(run.ID)),
+		fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+
+	cancelBtn := widget.NewButton("Cancel", func() { a.cancelRun(run.ID) })
+	cancelBtn.Importance = widget.DangerImportance
+
+	stage := widget.NewLabel(sagaStageText(p))
+
+	// Determinate bar with k/N (%) during the fits; an indeterminate bar while the
+	// single setup/aggregate pod works (no count to show).
+	var progress fyne.CanvasObject
+	if p.Stage == execution.SagaStageFits && p.Total > 0 {
+		bar := widget.NewProgressBar()
+		bar.Max = float64(p.Total)
+		bar.SetValue(float64(p.Done))
+		bar.TextFormatter = func() string {
+			pct := 0.0
+			if p.Total > 0 {
+				pct = float64(p.Done) / float64(p.Total) * 100
+			}
+
+			return fmt.Sprintf("%d/%d  (%.0f%%)", p.Done, p.Total, pct)
+		}
+		progress = bar
+	} else {
+		progress = widget.NewProgressBarInfinite()
+	}
+
+	counts := widget.NewLabel(fmt.Sprintf("✓ %d succeeded    ✗ %d failed", p.Succeeded, p.Failed))
+
+	podsHeader := widget.NewLabelWithStyle(
+		fmt.Sprintf("Pods running (%d / P=%d):", len(p.Live), a.bootstrapParallelism()),
+		fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+
+	podRows := make([]fyne.CanvasObject, 0, len(p.Live))
+	for i, pod := range p.Live {
+		if i >= sagaCardMaxPods {
+			podRows = append(podRows, widget.NewLabel(fmt.Sprintf("  … +%d more", len(p.Live)-sagaCardMaxPods)))
+
+			break
+		}
+
+		podRows = append(podRows, widget.NewLabel(
+			fmt.Sprintf("  %s    %s", pod.Name, formatDuration(time.Since(pod.Since)))))
+	}
+
+	if len(podRows) == 0 {
+		podRows = append(podRows, widget.NewLabel("  (none)"))
+	}
+
+	pods := container.NewVScroll(container.NewVBox(podRows...))
+	pods.SetMinSize(fyne.NewSize(0, 160))
+
+	body := container.NewVBox(
+		container.NewBorder(nil, nil, title, cancelBtn),
+		stage,
+		progress,
+		counts,
+		widget.NewSeparator(),
+		podsHeader,
+		pods,
+	)
+
+	return widget.NewCard("", "", body)
+}
+
+// bootstrapParallelism returns the configured fit-pod watermark (P) for display,
+// or the default when unset.
+func (a *App) bootstrapParallelism() int {
+	if a.config != nil {
+		return a.config.Hermes.Kubernetes.BootstrapParallelismOrDefault()
+	}
+
+	return config.DefaultBootstrapParallelism
+}
+
+func (a *App) getRunningLocalRuns() []runlog.RunRecord {
+	var runningRuns []runlog.RunRecord
+
+	for _, run := range a.cachedRuns {
 		if run.Status == "running" && !run.IsGrid {
 			runningRuns = append(runningRuns, run)
 		}
@@ -1964,48 +4004,24 @@ func (a *App) getRunningLocalRuns() []audit.RunRecord {
 }
 
 func (a *App) updateActiveRunsDisplay() {
-	if a.mainLayout == nil {
+	if a.activeRunsArea == nil {
 		return
 	}
 
-	// Remove existing active runs table if present
-	for i, obj := range a.mainLayout.Objects {
-		if container, ok := obj.(*fyne.Container); ok {
-			// Check if this is our active runs container by looking for the header
-			if len(container.Objects) > 0 {
-				if label, ok := container.Objects[0].(*fyne.Container); ok {
-					if len(label.Objects) > 0 {
-						if headerLabel, ok := label.Objects[0].(*widget.Label); ok {
-							if headerLabel.Text == "Active Local Executions" {
-								a.mainLayout.Objects = append(a.mainLayout.Objects[:i], a.mainLayout.Objects[i+1:]...)
+	// All UI updates must be on the main thread. Repopulate the persistent bottom
+	// slot rather than mutating the main Border (which can't place extra children).
+	fyne.Do(func() {
+		a.activeRunsArea.Objects = nil
 
-								break
-							}
-						}
-					}
-				}
-			}
+		if section := a.buildActiveRunsTable(); section != nil {
+			a.activeRunsArea.Add(section)
 		}
-	}
 
-	// Build new active runs table
-	activeRunsContainer := a.buildActiveRunsTable()
-	if activeRunsContainer != nil {
-		// Insert before the last item (grid details)
-		if len(a.mainLayout.Objects) > 0 {
-			// Insert before grid details (last item)
-			lastItem := a.mainLayout.Objects[len(a.mainLayout.Objects)-1]
-			a.mainLayout.Objects = a.mainLayout.Objects[:len(a.mainLayout.Objects)-1]
-			a.mainLayout.Objects = append(a.mainLayout.Objects, activeRunsContainer, lastItem)
-		} else {
-			a.mainLayout.Objects = append(a.mainLayout.Objects, activeRunsContainer)
-		}
-	}
-
-	a.mainLayout.Refresh()
+		a.activeRunsArea.Refresh()
+	})
 }
 
-func (a *App) showLiveOutput(runID int) {
+func (a *App) showLiveOutput(runID string) {
 	// Check if window already exists
 	if window, exists := a.liveOutputWindows[runID]; exists {
 		window.RequestFocus()
@@ -2016,13 +4032,13 @@ func (a *App) showLiveOutput(runID int) {
 	// Check if streaming is available
 	streaming, exists := a.activeStreams[runID]
 	if !exists {
-		a.sendError(fmt.Errorf("no live output available for run #%d", runID))
+		a.sendError(fmt.Errorf("no live output available for run #%s", shortRunID(runID)))
 
 		return
 	}
 
 	// Create new window for live output
-	window := a.fyneApp.NewWindow(fmt.Sprintf("Live Output - Run #%d", runID))
+	window := a.fyneApp.NewWindow(fmt.Sprintf("Live Output - Run #%s", shortRunID(runID)))
 	window.Resize(fyne.NewSize(800, 600))
 
 	// Create output displays
@@ -2105,15 +4121,15 @@ func (a *App) showLiveOutput(runID int) {
 	window.Show()
 }
 
-func (a *App) cancelRun(runID int) {
+func (a *App) cancelRun(runID string) {
 	if cancelFunc, exists := a.activeRuns[runID]; exists {
 		cancelFunc() // Cancel the context
 		delete(a.activeRuns, runID)
 
 		// Update run status to failed with cancellation message
-		a.updateRunRecord(runID, -1, "", "Run cancelled by user")
+		a.updateRunRecord(runID, -1, "", "Run cancelled by user", nil)
 
-		a.showInfoToast("Run Cancelled", fmt.Sprintf("Run #%d has been cancelled", runID))
+		a.showInfoToast("Run Cancelled", fmt.Sprintf("Run #%s has been cancelled", shortRunID(runID)))
 
 		// Update the display
 		a.updateActiveRunsDisplay()
@@ -2155,7 +4171,24 @@ func parseNonmemOptions(options string) []string {
 	return result
 }
 
-func (a *App) executeLocalRun(runRecord *audit.RunRecord) {
+// localRunConfig returns the config for a non-grid run (Here or SSH). A "Here"
+// run clears Remote so execution stays local; an SSH run keeps Remote so the
+// executors run over SSH. It returns a shallow clone so a.config is never
+// mutated and the implicit "remote when host set" only applies to the SSH target.
+func (a *App) localRunConfig() *config.Config {
+	if a.config == nil {
+		return nil
+	}
+
+	runCfg := *a.config
+	if !a.runRemote {
+		runCfg.Remote = config.RemoteConfig{}
+	}
+
+	return &runCfg
+}
+
+func (a *App) executeLocalRun(runRecord *runlog.RunRecord) {
 	modeText := "synchronous"
 	if runRecord.IsParallel {
 		modeText = fmt.Sprintf("parallel (%d cores)", runRecord.Cores)
@@ -2165,21 +4198,64 @@ func (a *App) executeLocalRun(runRecord *audit.RunRecord) {
 		fmt.Sprintf("Starting local %s NONMEM run...\nModel: %s",
 			modeText, filepath.Base(a.currentFilePath)))
 
-	// Create executor factory and get the appropriate executor
-	factory := execution.NewExecutorFactory(a.config)
+	// Create executor factory and get the appropriate executor. Use the per-run
+	// config so a "Here" run stays local even when a remote host is configured.
+	factory := execution.NewExecutorFactory(a.localRunConfig())
 	if concreteFactory, ok := factory.(*execution.DefaultExecutorFactory); ok {
-		concreteFactory.SetAuditEnabled(a.HasFeature("audit"))
+		concreteFactory.SetRunLogEnabled(a.HasFeature("runlog"))
 	}
-	executor, err := factory.CreateExecutor(a.config.ExecutionMode)
-	if err != nil {
-		a.sendError(fmt.Errorf("failed to create executor: %w", err))
-		a.updateRunRecord(runRecord.ID, -1, "", fmt.Sprintf("Executor creation failed: %s", err.Error()))
+
+	// Horizontal PsN bootstrap saga (#192): a host-orchestrated Kubernetes fan-out,
+	// distinct from the single-pod executors. Detect it before building a normal
+	// executor and run it on its own path.
+	if psnFn := a.selectedPSNFunction(); execution.IsBootstrapSagaRun(a.localRunConfig(), psnFn) {
+		samples := 0
+		if a.psnForm != nil {
+			samples = parseSamplesArg(a.psnForm.args(psnFn))
+		}
+
+		a.runBootstrapSaga(factory, runRecord, samples)
 
 		return
 	}
 
+	var executor execution.Executor
+	var err error
+
+	// Create appropriate executor (Hermes config already validated at this point)
+	if a.config.ExecutionMode == config.ExecutionModeHERMES {
+		executor, err = factory.CreateHermesExecutor(a.currentFilePath)
+	} else {
+		executor, err = factory.CreateExecutor(a.config.ExecutionMode)
+	}
+
+	if err != nil {
+		a.sendError(fmt.Errorf("failed to create executor: %w", err))
+		a.updateRunRecord(runRecord.ID, -1, "", fmt.Sprintf("Executor creation failed: %s", err.Error()), nil)
+
+		return
+	}
+
+	// Hermes + PsN engine + a selected analysis: run the PsN tool (vpc/scm/…) in
+	// the container instead of NONMEM. The container image must provide PsN.
+	if hx, ok := executor.(*execution.HermesExecutor); ok {
+		if fn := a.selectedPSNFunction(); fn != "" && a.engineIsPSN() {
+			var fnArgs []string
+			if a.psnForm != nil {
+				fnArgs = a.psnForm.args(fn)
+			}
+
+			hx.SetPSNFunction(fn, fnArgs)
+		}
+	}
+
 	// Show the active runs table immediately
 	a.updateActiveRunsDisplay()
+
+	// Capture the PsN analysis + model dir now, so a successful run can render
+	// its result (the picker may change after the run starts).
+	psnResultFn := a.selectedPSNFunction()
+	psnResultDir := filepath.Dir(a.currentFilePath)
 
 	// Execute in background goroutine
 	go func() {
@@ -2196,46 +4272,8 @@ func (a *App) executeLocalRun(runRecord *audit.RunRecord) {
 		// Store cancel function for this run
 		a.activeRuns[runRecord.ID] = cancel
 
-		// Check if executor supports streaming
-		if streamingExecutor, ok := executor.(execution.StreamingExecutor); ok {
-			// Parse additional NONMEM options
-			var additionalOptions []string
-			if runRecord.NonmemOptions != nil {
-				additionalOptions = parseNonmemOptions(*runRecord.NonmemOptions)
-			}
-
-			// Use streaming execution
-			streaming, result, err := streamingExecutor.ExecuteWithStreaming(ctx, a.currentFilePath, runRecord.IsParallel, runRecord.Cores, false, additionalOptions)
-			if err != nil {
-				a.sendError(fmt.Errorf("execution failed: %w", err))
-				a.updateRunRecord(runRecord.ID, -1, "", fmt.Sprintf("Execution failed: %s", err.Error()))
-
-				return
-			}
-
-			// Store streaming output for live viewing
-			a.activeStreams[runRecord.ID] = streaming
-
-			// Wait for completion and get final result
-			<-streaming.Done
-
-			// Update run record with results
-			stdout := string(result.Stdout)
-			stderr := string(result.Stderr)
-			a.updateRunRecord(runRecord.ID, result.ExitCode, stdout, stderr)
-
-			// Clean up streaming data
-			delete(a.activeStreams, runRecord.ID)
-
-			// Show completion notification
-			if result.ExitCode == 0 {
-				a.showSuccessToast(fmt.Sprintf("NONMEM run #%d completed successfully", runRecord.ID))
-			} else {
-				a.sendError(fmt.Errorf("NONMEM run #%d failed with exit code %d", runRecord.ID, result.ExitCode))
-			}
-
-			return
-		}
+		// Note: GUI streaming support via SetOutputWriters could be added here in the future
+		// For now, GUI execution uses buffered output (non-streaming)
 
 		// Parse additional NONMEM options
 		var additionalOptions []string
@@ -2243,11 +4281,26 @@ func (a *App) executeLocalRun(runRecord *audit.RunRecord) {
 			additionalOptions = parseNonmemOptions(*runRecord.NonmemOptions)
 		}
 
-		// Fall back to regular execution if streaming not supported
-		result, err := executor.Execute(ctx, a.currentFilePath, runRecord.IsParallel, runRecord.Cores, false, additionalOptions)
+		// In PSN mode with a preset selected, run the preset (vpc/bootstrap/scm/…);
+		// otherwise the plain execute. The remote/local choice is already baked
+		// into the per-run config.
+		var result *execution.ExecutionResult
+		var err error
+		if psnExec, ok := executor.(*execution.PSNExecutor); ok && a.selectedPSNFunction() != "" {
+			fn := a.selectedPSNFunction()
+
+			fnArgs := additionalOptions
+			if a.psnForm != nil {
+				fnArgs = append(a.psnForm.args(fn), additionalOptions...)
+			}
+
+			result, err = psnExec.RunFunction(ctx, fn, a.currentFilePath, runRecord.IsParallel, runRecord.Cores, false, fnArgs)
+		} else {
+			result, err = executor.Execute(ctx, a.currentFilePath, runRecord.IsParallel, runRecord.Cores, false, additionalOptions)
+		}
 		if err != nil {
 			a.sendError(fmt.Errorf("execution failed: %w", err))
-			a.updateRunRecord(runRecord.ID, -1, "", fmt.Sprintf("Execution failed: %s", err.Error()))
+			a.updateRunRecord(runRecord.ID, -1, "", fmt.Sprintf("Execution failed: %s", err.Error()), nil)
 
 			return
 		}
@@ -2256,16 +4309,183 @@ func (a *App) executeLocalRun(runRecord *audit.RunRecord) {
 		stdout := string(result.Stdout)
 		stderr := string(result.Stderr)
 
-		// Update run record with results
-		a.updateRunRecord(runRecord.ID, result.ExitCode, stdout, stderr)
+		// Update run record with results (includes container provenance for Hermes executions)
+		a.updateRunRecord(runRecord.ID, result.ExitCode, stdout, stderr, result.Container)
 
 		// Show completion notification
 		if result.ExitCode == 0 {
-			a.showSuccessToast(fmt.Sprintf("NONMEM run #%d completed successfully", runRecord.ID))
+			a.showSuccessToast(fmt.Sprintf("NONMEM run #%s completed successfully", shortRunID(runRecord.ID)))
+
+			// Render the PsN analysis result (bootstrap CIs / scm summary / vpc).
+			if slices.Contains([]string{"bootstrap", "vpc", "scm"}, psnResultFn) {
+				fyne.Do(func() { showPSNResultsDialog(a.window, psnResultFn, psnResultDir) })
+			}
 		} else {
-			a.sendError(fmt.Errorf("NONMEM run #%d failed with exit code %d", runRecord.ID, result.ExitCode))
+			a.sendError(fmt.Errorf("NONMEM run #%s failed with exit code %d", shortRunID(runRecord.ID), result.ExitCode))
 		}
 	}()
+}
+
+// runBootstrapSaga executes the horizontal PsN bootstrap saga on Kubernetes in
+// the background, then records it as a parent run with one child per fit
+// (#192/#195/#196) and renders the confidence intervals on success.
+func (a *App) runBootstrapSaga(factory execution.ExecutorFactory, runRecord *runlog.RunRecord, samples int) {
+	a.updateActiveRunsDisplay()
+
+	store := a.runLogStore
+	modelPath := a.currentFilePath
+	resultDir := filepath.Dir(modelPath)
+
+	go func() {
+		// Bootstrap fan-out can take a long time; give it a generous ceiling.
+		ctx, cancel := context.WithTimeout(a.errorCtx, 6*time.Hour)
+		defer func() {
+			cancel()
+			delete(a.activeRuns, runRecord.ID)
+			a.updateActiveRunsDisplay()
+		}()
+
+		a.activeRuns[runRecord.ID] = cancel
+
+		concrete, ok := factory.(*execution.DefaultExecutorFactory)
+		if !ok {
+			a.failSaga(store, runRecord, fmt.Errorf("executor factory does not support the bootstrap saga"))
+
+			return
+		}
+
+		if samples <= 0 {
+			a.failSaga(store, runRecord, fmt.Errorf("bootstrap requires a positive number of samples"))
+
+			return
+		}
+
+		saga, err := concrete.CreateBootstrapSaga(modelPath)
+		if err != nil {
+			a.failSaga(store, runRecord, fmt.Errorf("failed to create bootstrap saga: %w", err))
+
+			return
+		}
+
+		// Publish live progress (stage, k/N, running pods) for the active-runs card.
+		// The 2s ticker redraws the card from the latest snapshot; the callback only
+		// stores it (fires concurrently from fit goroutines).
+		saga.SetProgressFunc(func(p execution.SagaProgress) {
+			a.sagaMu.Lock()
+			a.sagaProgress[runRecord.ID] = p
+			a.sagaMu.Unlock()
+		})
+
+		res, err := saga.Run(ctx, modelPath, samples)
+		if err != nil {
+			a.failSaga(store, runRecord, err)
+
+			return
+		}
+
+		a.recordSagaSuccess(store, runRecord, res)
+		a.showSuccessToast(fmt.Sprintf("Bootstrap #%s: %d/%d fits succeeded",
+			shortRunID(runRecord.ID), res.Succeeded, res.Samples))
+		fyne.Do(func() { showPSNResultsDialog(a.window, "bootstrap", resultDir) })
+	}()
+}
+
+// clearSagaProgress drops a finished saga's live-progress snapshot so the card
+// stops being rendered once the run leaves the active set.
+func (a *App) clearSagaProgress(runID string) {
+	a.sagaMu.Lock()
+	delete(a.sagaProgress, runID)
+	a.sagaMu.Unlock()
+}
+
+// failSaga marks the saga's parent run failed and surfaces the error. A
+// cancellation (the user hit Cancel, which cancels the saga context) is recorded
+// as a cancellation rather than an error — the pods are still swept by the saga's
+// deferred label cleanup either way.
+func (a *App) failSaga(store *runlog.RunLogStore, runRecord *runlog.RunRecord, err error) {
+	cancelled := errors.Is(err, context.Canceled)
+
+	if cancelled {
+		a.sendError(fmt.Errorf("bootstrap saga cancelled: %w", err))
+	} else {
+		a.sendError(fmt.Errorf("bootstrap saga failed: %w", err))
+	}
+
+	a.clearSagaProgress(runRecord.ID)
+
+	if store == nil {
+		return
+	}
+
+	description := fmt.Sprintf("Bootstrap saga failed: %s", err.Error())
+	if cancelled {
+		description = "Bootstrap saga cancelled by user; requested pods torn down."
+	}
+
+	runRecord.Kind = runlog.KindSaga
+	runRecord.ExitCode = -1
+	runRecord.Status = "failed"
+	_ = runRecord.SetDescription(description)
+
+	if uerr := store.UpdateRun(runRecord); uerr != nil {
+		log.Printf("Warning: failed to record failed bootstrap saga: %v", uerr)
+	}
+
+	a.refreshCachedRuns()
+}
+
+// recordSagaSuccess updates the parent run with the saga summary and records one
+// child run per fit, linked via RunLogStore.AddSaga.
+func (a *App) recordSagaSuccess(store *runlog.RunLogStore, runRecord *runlog.RunRecord, res *execution.BootstrapSagaResult) {
+	a.clearSagaProgress(runRecord.ID)
+
+	if store == nil {
+		return
+	}
+
+	runRecord.ExitCode = 0
+	runRecord.Status = "completed"
+	_ = runRecord.SetDescription(fmt.Sprintf(
+		"Bootstrap saga: %d samples, %d succeeded, %d failed. Results: %s",
+		res.Samples, res.Succeeded, res.Failed, strings.Join(res.OutputFiles, ", ")))
+
+	children := make([]*runlog.RunRecord, 0, res.Samples)
+	for i := 1; i <= res.Samples; i++ {
+		status := "completed"
+		exit := 0
+
+		if _, failed := res.FitErrors[i]; failed {
+			status = "failed"
+			exit = -1
+		}
+
+		children = append(children, &runlog.RunRecord{
+			ModelFile: runRecord.ModelFile,
+			Command:   fmt.Sprintf("nonmem bs_pr1_%d.mod bs_pr1_%d.lst", i, i),
+			ExitCode:  exit,
+			Status:    status,
+		})
+	}
+
+	if err := store.AddSaga(runRecord, children); err != nil {
+		log.Printf("Warning: failed to record bootstrap saga to run log: %v", err)
+	}
+
+	a.refreshCachedRuns()
+}
+
+// parseSamplesArg extracts the integer N from a "-samples=N" argument, returning
+// 0 when none is present.
+func parseSamplesArg(args []string) int {
+	for _, arg := range args {
+		if v, ok := strings.CutPrefix(arg, "-samples="); ok {
+			n, _ := strconv.Atoi(strings.TrimSpace(v))
+
+			return n
+		}
+	}
+
+	return 0
 }
 
 func (a *App) showGridConfigurationModal() {
@@ -2309,7 +4529,7 @@ func (a *App) executeGridRunWithDescription(gridSettings *GridSettings, descript
 	a.executeGridRun(runRecord)
 }
 
-func (a *App) createGridRunRecord(gridSettings *GridSettings, description string) *audit.RunRecord {
+func (a *App) createGridRunRecord(gridSettings *GridSettings, description string) *runlog.RunRecord {
 	// Build command based on grid settings
 	var additionalOptions []string
 	if len(gridSettings.NONMEM.AdditionalOptions) > 0 {
@@ -2329,14 +4549,11 @@ func (a *App) createGridRunRecord(gridSettings *GridSettings, description string
 		nonmemOptions,
 	)
 
-	runRecord := &audit.RunRecord{
-		ID:         a.getNextRunID(),
-		Timestamp:  time.Now(),
+	runRecord := &runlog.RunRecord{
+		// ID and Timestamp will be set by RunLogStore.AddRun if not provided
 		ModelFile:  a.currentFilePath,
 		Command:    command,
 		ExitCode:   -1, // Not completed yet
-		Stdout:     "",
-		Stderr:     "",
 		IsParallel: gridSettings.NONMEM.Parallel,
 		Cores:      gridSettings.NONMEM.Threads,
 		IsGrid:     true,
@@ -2346,7 +4563,6 @@ func (a *App) createGridRunRecord(gridSettings *GridSettings, description string
 	// Add description if provided (use compressed storage)
 	if description != "" {
 		if err := runRecord.SetDescription(description); err != nil {
-			log.Printf("Failed to compress description: %v", err)
 			runRecord.Description = description // Fallback to uncompressed
 		}
 	}
@@ -2357,14 +4573,20 @@ func (a *App) createGridRunRecord(gridSettings *GridSettings, description string
 		runRecord.NonmemOptions = &optionsStr
 	}
 
-	// Add to history and save
-	a.runHistory.Runs = append(a.runHistory.Runs, *runRecord)
-	a.saveRunHistory()
+	// Add to store (generates UUID, signs if configured, writes atomically)
+	if a.runLogStore != nil {
+		if err := a.runLogStore.AddRun(runRecord); err != nil {
+			a.sendError(fmt.Errorf("failed to save run record: %w", err))
+		}
+	}
+
+	// Refresh cached runs for table display
+	a.refreshCachedRuns()
 
 	return runRecord
 }
 
-func (a *App) executeGridRun(runRecord *audit.RunRecord) {
+func (a *App) executeGridRun(runRecord *runlog.RunRecord) {
 	modeText := "synchronous"
 	if runRecord.IsParallel {
 		modeText = fmt.Sprintf("parallel (%d cores)", runRecord.Cores)
@@ -2377,12 +4599,22 @@ func (a *App) executeGridRun(runRecord *audit.RunRecord) {
 	// Create executor factory and get the appropriate executor
 	factory := execution.NewExecutorFactory(a.config)
 	if concreteFactory, ok := factory.(*execution.DefaultExecutorFactory); ok {
-		concreteFactory.SetAuditEnabled(a.HasFeature("audit"))
+		concreteFactory.SetRunLogEnabled(a.HasFeature("runlog"))
 	}
-	executor, err := factory.CreateExecutor(a.config.ExecutionMode)
+
+	var executor execution.Executor
+	var err error
+
+	// Create appropriate executor (Hermes config already validated at this point)
+	if a.config.ExecutionMode == config.ExecutionModeHERMES {
+		executor, err = factory.CreateHermesExecutor(a.currentFilePath)
+	} else {
+		executor, err = factory.CreateExecutor(a.config.ExecutionMode)
+	}
+
 	if err != nil {
 		a.sendError(fmt.Errorf("failed to create executor: %w", err))
-		a.updateRunRecord(runRecord.ID, -1, "", fmt.Sprintf("Executor creation failed: %s", err.Error()))
+		a.updateRunRecord(runRecord.ID, -1, "", fmt.Sprintf("Executor creation failed: %s", err.Error()), nil)
 
 		return
 	}
@@ -2412,7 +4644,7 @@ func (a *App) executeGridRun(runRecord *audit.RunRecord) {
 		}
 		if err != nil {
 			a.sendError(fmt.Errorf("grid execution failed: %w", err))
-			a.updateRunRecord(runRecord.ID, -1, "", fmt.Sprintf("Grid execution failed: %s", err.Error()))
+			a.updateRunRecord(runRecord.ID, -1, "", fmt.Sprintf("Grid execution failed: %s", err.Error()), nil)
 
 			return
 		}
@@ -2421,14 +4653,14 @@ func (a *App) executeGridRun(runRecord *audit.RunRecord) {
 		stdout := string(result.Stdout)
 		stderr := string(result.Stderr)
 
-		// Update run record with results
-		a.updateRunRecord(runRecord.ID, result.ExitCode, stdout, stderr)
+		// Update run record with results (includes container provenance for Hermes executions)
+		a.updateRunRecord(runRecord.ID, result.ExitCode, stdout, stderr, result.Container)
 
 		// Show completion notification
 		if result.ExitCode == 0 {
-			a.showSuccessToast(fmt.Sprintf("Grid job #%d completed successfully", runRecord.ID))
+			a.showSuccessToast(fmt.Sprintf("Grid job #%s completed successfully", shortRunID(runRecord.ID)))
 		} else {
-			a.sendError(fmt.Errorf("grid job #%d failed with exit code %d", runRecord.ID, result.ExitCode))
+			a.sendError(fmt.Errorf("grid job #%s failed with exit code %d", shortRunID(runRecord.ID), result.ExitCode))
 		}
 	}()
 }

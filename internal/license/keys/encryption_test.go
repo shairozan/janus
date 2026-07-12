@@ -5,6 +5,7 @@ package keys
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -193,10 +194,22 @@ func TestEncryptor_TamperedCiphertext(t *testing.T) {
 		t.Fatalf("encryption failed: %v", err)
 	}
 
-	// Tamper with the ciphertext by changing one character
-	tampered := ciphertext[:len(ciphertext)-5] + "X" + ciphertext[len(ciphertext)-4:]
+	// Decode the base64 to get raw bytes
+	decoded, err := base64.StdEncoding.DecodeString(ciphertext)
+	if err != nil {
+		t.Fatalf("failed to decode ciphertext: %v", err)
+	}
 
-	// Attempt to decrypt tampered ciphertext
+	// Tamper with the actual encrypted bytes (flip a bit in the ciphertext part, not the nonce)
+	if len(decoded) < 13 {
+		t.Fatalf("ciphertext too short to tamper")
+	}
+	decoded[12] ^= 0x01 // Flip one bit in the ciphertext
+
+	// Re-encode to base64
+	tampered := base64.StdEncoding.EncodeToString(decoded)
+
+	// Attempt to decrypt tampered ciphertext - should fail GCM authentication
 	_, err = encryptor.Decrypt(tampered)
 	if err == nil {
 		t.Error("expected authentication failure for tampered ciphertext, got nil")

@@ -19,6 +19,7 @@ func Agreement(database *db.DB, writeError func(http.ResponseWriter, int, string
 			claims, ok := GetClaims(r)
 			if !ok {
 				writeError(w, http.StatusUnauthorized, "valid JWT required for this endpoint")
+
 				return
 			}
 
@@ -26,12 +27,14 @@ func Agreement(database *db.DB, writeError func(http.ResponseWriter, int, string
 			var organization models.Organization
 			if err := database.DB.Where("customer_id = ?", claims.Subject).First(&organization).Error; err != nil {
 				writeError(w, http.StatusNotFound, fmt.Sprintf("organization not found: %v", err))
+
 				return
 			}
 
 			// Check if organization is active
 			if organization.DeactivatedAt != nil {
 				writeError(w, http.StatusForbidden, "organization is deactivated")
+
 				return
 			}
 
@@ -44,6 +47,16 @@ func Agreement(database *db.DB, writeError func(http.ResponseWriter, int, string
 				Order("created_at DESC").
 				First(&agreement).Error; err != nil {
 				writeError(w, http.StatusNotFound, fmt.Sprintf("no active agreement found: %v", err))
+
+				return
+			}
+
+			// Verify the JWT's agreement_id matches the active agreement on record.
+			// This rejects tokens that reference a different (e.g. superseded or
+			// tampered) agreement before any tier/feature decisions are made.
+			if claims.AgreementID != agreement.ID {
+				writeError(w, http.StatusForbidden, "JWT agreement_id does not match current agreement")
+
 				return
 			}
 
@@ -66,6 +79,7 @@ func Agreement(database *db.DB, writeError func(http.ResponseWriter, int, string
 			// This ensures the JWT hasn't been tampered with or is outdated
 			if tier != claims.Tier {
 				writeError(w, http.StatusForbidden, "JWT tier does not match current agreement")
+
 				return
 			}
 

@@ -9,46 +9,49 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/audit"
 	"github.com/pharmalytica/janus/internal/config"
+	"github.com/pharmalytica/janus/internal/remote"
+	"github.com/pharmalytica/janus/internal/runlog"
 )
 
 // NONMEMExecutor implements direct NONMEM execution.
 type NONMEMExecutor struct {
-	config      *config.Config
-	auditLogger *audit.Logger
+	config    *config.Config
+	runLogger *runlog.RunLogger
 }
 
-// NewNONMEMExecutor creates a new NONMEM executor without audit logging.
-// Deprecated: Use NewNONMEMExecutorWithAudit for explicit audit control.
+// NewNONMEMExecutor creates a new NONMEM executor without run logging.
+//
+// Deprecated: Use NewNONMEMExecutorWithRunLog for explicit run log control.
 func NewNONMEMExecutor(cfg *config.Config) Executor {
-	return NewNONMEMExecutorWithAudit(cfg, false)
+	return NewNONMEMExecutorWithRunLog(cfg, false)
 }
 
-// NewNONMEMExecutorWithAudit creates a new NONMEM executor with optional audit logging.
-func NewNONMEMExecutorWithAudit(cfg *config.Config, auditEnabled bool) Executor {
+// NewNONMEMExecutorWithRunLog creates a new NONMEM executor with optional run logging.
+func NewNONMEMExecutorWithRunLog(cfg *config.Config, runLogEnabled bool) Executor {
 	executor := &NONMEMExecutor{
 		config: cfg,
 	}
 
-	// Initialize audit logger if audit is enabled
-	if auditEnabled {
-		auditLogPath := cfg.Audit.Path
-		if auditLogPath == "" {
-			auditLogPath = "audit.jsonl" // Default audit log file
+	// Initialize run logger if enabled
+	if runLogEnabled {
+		runLogPath := cfg.RunLog.Path
+		if runLogPath == "" {
+			runLogPath = "runlog.jsonl" // Default run log file
 		}
 
-		auditLogger, err := audit.NewLogger(true, auditLogPath)
+		runLogger, err := runlog.NewRunLogger(true, runLogPath)
 		if err != nil {
-			// Log error but don't fail - audit logging is supplementary
+			// Log error but don't fail - run logging is supplementary
 			// In production, we might want to handle this differently
-			log.Printf("Warning: Failed to initialize audit logger: %v", err)
+			log.Printf("Warning: Failed to initialize run logger: %v", err)
 		} else {
-			executor.auditLogger = auditLogger
+			executor.runLogger = runLogger
 		}
 	}
 
@@ -103,7 +106,7 @@ func (e *NONMEMExecutor) Execute(ctx context.Context, modelPath string, isParall
 	// Check if this should be submitted to a grid scheduler
 	if isGrid && e.config != nil && e.config.Scheduler == "SLURM" {
 		// Delegate to SLURMExecutor for proper job monitoring and output collection
-		slurmExecutor, err := NewSLURMExecutor(e.config, e.auditLogger)
+		slurmExecutor, err := NewSLURMExecutor(e.config, e.runLogger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SLURM executor: %w", err)
 		}
@@ -112,16 +115,40 @@ func (e *NONMEMExecutor) Execute(ctx context.Context, modelPath string, isParall
 		return slurmExecutor.Execute(ctx, modelPath, isParallel, cores, isGrid, additionalOptions)
 	}
 
+	// Other configured grid schedulers (SGE, Torque, PBS, …) go through the
+	// generic, profile-driven grid executor instead of falling back to local.
+	if isGrid && e.config != nil && isNonSLURMGrid(e.config.Scheduler) {
+		gridExecutor, err := NewGridExecutor(e.config, e.runLogger)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create grid executor: %w", err)
+		}
+		defer gridExecutor.Close()
+
+		return gridExecutor.Execute(ctx, modelPath, isParallel, cores, isGrid, additionalOptions)
+	}
+
+	// Direct remote (SSH) execution: run nmfe on the configured host, no
+	// scheduler. Mirrors the remote PsN path. The GUI sets Remote only for the
+	// SSH target, so a local ("Here") run never reaches this branch.
+	if !isGrid && e.config != nil && e.config.Remote.Host != "" {
+		return e.runRemote(ctx, modelPath, isParallel, cores, additionalOptions)
+	}
+
+	// Apply the pre-run output policy (e.g. archive prior results when the
+	// sequential overwrite policy is active). No-op by default.
+	applyBeforeRun(e.config, modelPath)
+	applyPreHooks(ctx, e.config, modelPath)
+
 	// Build command using the testable function
 	nonmemBinary, args, err := e.buildNONMEMCommand(modelPath, isParallel, cores, isGrid, additionalOptions)
 	if err != nil {
 		return nil, err
 	}
 
-	// Generate job ID for audit trail if audit logging is enabled
+	// Generate job ID for run log if run logging is enabled
 	var jobID string
-	if e.auditLogger != nil && e.auditLogger.IsEnabled() {
-		jobID = e.auditLogger.GenerateJobID()
+	if e.runLogger != nil && e.runLogger.IsEnabled() {
+		jobID = e.runLogger.GenerateJobID()
 	}
 
 	// Record start time for duration calculation
@@ -157,9 +184,9 @@ func (e *NONMEMExecutor) Execute(ctx context.Context, modelPath string, isParall
 		}
 	}
 
-	// Log execution to audit trail if enabled
-	if e.auditLogger != nil && e.auditLogger.IsEnabled() {
-		auditErr := e.auditLogger.LogExecution(
+	// Log execution to run log if enabled
+	if e.runLogger != nil && e.runLogger.IsEnabled() {
+		runLogErr := e.runLogger.RecordExecution(
 			jobID,
 			nonmemBinary,
 			args,
@@ -169,10 +196,15 @@ func (e *NONMEMExecutor) Execute(ctx context.Context, modelPath string, isParall
 			duration,
 			workDir,
 		)
-		if auditErr != nil {
-			log.Printf("Warning: Failed to log execution to audit trail: %v", auditErr)
+		if runLogErr != nil {
+			log.Printf("Warning: Failed to log execution to run log: %v", runLogErr)
 		}
 	}
+
+	// Run post-run integration hooks (e.g. R diagnostics), then apply the
+	// post-run output policy (backup, cleanup). Both are no-ops by default.
+	applyPostHooks(ctx, e.config, modelPath)
+	applyAfterRun(e.config, modelPath)
 
 	// Return raw bytes for both stdout and stderr
 	result := &ExecutionResult{
@@ -186,7 +218,7 @@ func (e *NONMEMExecutor) Execute(ctx context.Context, modelPath string, isParall
 
 // ExecuteWithJobID runs a NONMEM model with an optional job ID for SLURM job naming.
 // This method is used by the GUI to provide better job correlation.
-func (e *NONMEMExecutor) ExecuteWithJobID(ctx context.Context, modelPath string, isParallel bool, cores int, isGrid bool, additionalOptions []string, _ int) (*ExecutionResult, error) {
+func (e *NONMEMExecutor) ExecuteWithJobID(ctx context.Context, modelPath string, isParallel bool, cores int, isGrid bool, additionalOptions []string, _ string) (*ExecutionResult, error) {
 	// Validate that the model file exists
 	if _, err := os.Stat(modelPath); err != nil {
 		if os.IsNotExist(err) {
@@ -199,7 +231,7 @@ func (e *NONMEMExecutor) ExecuteWithJobID(ctx context.Context, modelPath string,
 	// Check if this should be submitted to a grid scheduler
 	if isGrid && e.config != nil && e.config.Scheduler == "SLURM" {
 		// Delegate to SLURMExecutor for proper job monitoring and output collection
-		slurmExecutor, err := NewSLURMExecutor(e.config, e.auditLogger)
+		slurmExecutor, err := NewSLURMExecutor(e.config, e.runLogger)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create SLURM executor: %w", err)
 		}
@@ -229,10 +261,10 @@ func (e *NONMEMExecutor) ExecuteWithStreaming(ctx context.Context, modelPath str
 		return nil, nil, err
 	}
 
-	// Generate job ID for audit trail if audit logging is enabled
+	// Generate job ID for run log if run logging is enabled
 	var jobID string
-	if e.auditLogger != nil && e.auditLogger.IsEnabled() {
-		jobID = e.auditLogger.GenerateJobID()
+	if e.runLogger != nil && e.runLogger.IsEnabled() {
+		jobID = e.runLogger.GenerateJobID()
 	}
 
 	// Record start time for duration calculation
@@ -337,9 +369,9 @@ func (e *NONMEMExecutor) ExecuteWithStreaming(ctx context.Context, modelPath str
 		result.Stdout = stdout.Bytes()
 		result.Stderr = stderr.Bytes()
 
-		// Log execution to audit trail if enabled
-		if e.auditLogger != nil && e.auditLogger.IsEnabled() {
-			auditErr := e.auditLogger.LogExecution(
+		// Log execution to run log if enabled
+		if e.runLogger != nil && e.runLogger.IsEnabled() {
+			runLogErr := e.runLogger.RecordExecution(
 				jobID,
 				nonmemBinary,
 				args,
@@ -349,8 +381,8 @@ func (e *NONMEMExecutor) ExecuteWithStreaming(ctx context.Context, modelPath str
 				duration,
 				workDir,
 			)
-			if auditErr != nil {
-				log.Printf("Warning: Failed to log execution to audit trail: %v", auditErr)
+			if runLogErr != nil {
+				log.Printf("Warning: Failed to log execution to run log: %v", runLogErr)
 			}
 		}
 	}()
@@ -374,5 +406,52 @@ func buildNonmemBinaryPath(nonmemPath, nonmemBinary string) (string, error) {
 	return absPath, nil
 }
 
+// runRemote runs nmfe directly on the configured remote host over SSH (no
+// scheduler), mirroring the remote PsN path. Model/working-dir paths are
+// translated to the remote host and results are read locally via the shared
+// mount. Full run-log artifact collection for SSH runs is tracked in #183.
+func (e *NONMEMExecutor) runRemote(ctx context.Context, modelPath string, isParallel bool, _ int, additionalOptions []string) (*ExecutionResult, error) {
+	applyBeforeRun(e.config, modelPath)
+	applyPreHooks(ctx, e.config, modelPath)
 
+	mapper := remote.NewPathMapper(e.config.Remote.Mounts)
 
+	runner, err := remote.NewRunner(e.config.Remote)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create remote runner: %w", err)
+	}
+
+	remoteModel := mapper.ToRemote(modelPath)
+	argv := buildRemoteNonmemArgv(e.config.NonmemPath, e.config.NonmemBinary, remoteModel, isParallel, additionalOptions)
+
+	out, exitCode, err := runner.Run(ctx, path.Dir(remoteModel), argv, "")
+	if err != nil {
+		return nil, fmt.Errorf("remote NONMEM execution failed: %w", err)
+	}
+
+	applyPostHooks(ctx, e.config, modelPath)
+	applyAfterRun(e.config, modelPath)
+
+	return &ExecutionResult{ExitCode: exitCode, Stdout: []byte(out)}, nil
+}
+
+// buildRemoteNonmemArgv builds the nmfe command argv for remote execution, using
+// forward-slash (remote) paths and mirroring buildNONMEMCommand's argument order
+// (binary, model, output.lst, [-parallel pnm], options).
+func buildRemoteNonmemArgv(nonmemPath, nonmemBinary, remoteModel string, isParallel bool, additionalOptions []string) []string {
+	binary := nonmemBinary
+	if nonmemPath != "" {
+		binary = path.Join(nonmemPath, nonmemBinary)
+	}
+
+	base := strings.TrimSuffix(remoteModel, path.Ext(remoteModel))
+	argv := []string{binary, remoteModel, base + ".lst"}
+
+	if isParallel {
+		argv = append(argv, "-parallel", base+".pnm")
+	}
+
+	argv = append(argv, additionalOptions...)
+
+	return argv
+}

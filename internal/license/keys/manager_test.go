@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/license/db/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pharmalytica/janus/internal/license/db/testutil"
 )
 
 // setupTestManager creates a test manager with containerized PostgreSQL database

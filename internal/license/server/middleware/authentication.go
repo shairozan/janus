@@ -6,80 +6,59 @@ import (
 	"net/http"
 
 	"github.com/pharmalytica/janus/internal/license/auth"
-	"github.com/pharmalytica/janus/internal/license/jwt"
 )
 
-// JWTValidator is an interface for validating JWT tokens.
-type JWTValidator interface {
-	ValidateToken(tokenString string) (*jwt.Claims, error)
-}
-
-// OIDCValidator is an interface for validating OIDC ID tokens.
+// OIDCValidator is the subset of auth.OIDCValidator used by Authentication.
 type OIDCValidator interface {
-	ValidateIDToken(ctx context.Context, tokenString string) (*auth.OIDCUser, error)
-	GetIssuer() string
+	ValidateToken(ctx context.Context, tokenString string) (*auth.OIDCUser, error)
 }
 
-// Authentication extracts and validates Bearer tokens from the Authorization header.
-// Supports both Janus JWT tokens and OIDC ID tokens.
-// If a valid token is found, the claims/user are added to the request context.
-// This middleware is permissive - it doesn't fail if no token is present, allowing
-// endpoints to decide if authentication is required.
-func Authentication(jwtGen JWTValidator, oidcValidator OIDCValidator, logger *log.Logger) Middleware {
+// Authentication extracts and validates a Cognito access token from the
+// Authorization: Bearer header. On a valid token it stores the OIDCUser
+// (Sub and Expiry populated) in the request context.
+//
+// This middleware is permissive — requests with missing or invalid tokens pass
+// through without an OIDCUser in context. Use RequireUserInfo on individual
+// routes to enforce access.
+func Authentication(oidcValidator OIDCValidator, logger *log.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extract Bearer token from Authorization header
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				// No token provided - pass through without claims
+			if oidcValidator == nil {
 				next.ServeHTTP(w, r)
+
 				return
 			}
 
-			// Check for "Bearer " prefix
-			const bearerPrefix = "Bearer "
-			if len(authHeader) < len(bearerPrefix) || authHeader[:len(bearerPrefix)] != bearerPrefix {
-				// Invalid format - pass through without claims
+			token := bearerToken(r)
+			if token == "" {
 				next.ServeHTTP(w, r)
+
 				return
 			}
 
-			// Extract token
-			tokenString := authHeader[len(bearerPrefix):]
-			if tokenString == "" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			ctx := r.Context()
-
-			// Try OIDC validation first (if configured)
-			if oidcValidator != nil {
-				oidcUser, err := oidcValidator.ValidateIDToken(ctx, tokenString)
-				if err == nil {
-					// Valid OIDC token - add user to context
-					ctx = context.WithValue(ctx, contextKeyOIDCUser, oidcUser)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				}
-				// OIDC validation failed, try JWT validation below
-				logger.Printf("OIDC token validation failed (will try JWT): %v", err)
-			}
-
-			// Try Janus JWT validation
-			claims, err := jwtGen.ValidateToken(tokenString)
+			user, err := oidcValidator.ValidateToken(r.Context(), token)
 			if err != nil {
-				// Invalid token - log but don't fail the request
-				logger.Printf("JWT token validation failed: %v", err)
+				logger.Printf("token validation failed: %v", err)
 				next.ServeHTTP(w, r)
+
 				return
 			}
 
-			// Valid JWT token - add claims to context
-			ctx = context.WithValue(ctx, contextKeyClaims, claims)
-
-			// Pass the enriched request to the next handler
+			ctx := context.WithValue(r.Context(), contextKeyOIDCUser, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// bearerToken extracts the token string from an "Authorization: Bearer <token>"
+// header. Returns an empty string if the header is absent or malformed.
+func bearerToken(r *http.Request) string {
+	const prefix = "Bearer "
+
+	h := r.Header.Get("Authorization")
+	if len(h) <= len(prefix) || h[:len(prefix)] != prefix {
+		return ""
+	}
+
+	return h[len(prefix):]
 }

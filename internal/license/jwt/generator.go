@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/pharmalytica/janus/internal/license/models"
 	"gorm.io/gorm"
+
+	"github.com/pharmalytica/janus/internal/license/models"
 )
 
 // KeyProvider provides access to signing keys.
@@ -17,7 +18,7 @@ type KeyProvider interface {
 	GetPublicKey(keyID string) (*rsa.PublicKey, error)
 }
 
-// DBProvider provides database access for loading relationships
+// DBProvider provides database access for loading relationships.
 type DBProvider interface {
 	GetDB() *gorm.DB
 }
@@ -36,23 +37,51 @@ func NewGenerator(keyProvider KeyProvider, db DBProvider) *Generator {
 	}
 }
 
-// GenerateTokenFromAgreement generates a JWT token for a user based on an agreement.
-// This method loads the required relationships (organization, license) automatically.
+// IssuedLicense is the result of issuing a license JWT: the signed token plus the
+// tracking metadata the portal persists in issued_tokens.
+type IssuedLicense struct {
+	Token     string    // signed JWT (the user's license artifact)
+	JTI       string    // unique token id, for revocation tracking
+	KeyID     string    // signing key id that produced the token
+	ExpiresAt time.Time // token expiry
+}
+
+// GenerateTokenFromAgreement generates a signed license JWT for a user based on
+// an agreement. signingPublicKey is the user's RSA public key (PEM) for run-log
+// signing; if empty, run-log signing is disabled for this license.
 func (g *Generator) GenerateTokenFromAgreement(
 	agr *models.Agreement,
 	userEmail string,
 	duration time.Duration,
+	signingPublicKey string,
 ) (string, error) {
+	issued, err := g.IssueLicenseFromAgreement(agr, userEmail, duration, signingPublicKey)
+	if err != nil {
+		return "", err
+	}
+
+	return issued.Token, nil
+}
+
+// IssueLicenseFromAgreement is like GenerateTokenFromAgreement but also returns
+// the JTI, signing key id, and expiry so the caller can persist an issued_tokens
+// row for revocation tracking and download.
+func (g *Generator) IssueLicenseFromAgreement(
+	agr *models.Agreement,
+	userEmail string,
+	duration time.Duration,
+	signingPublicKey string,
+) (*IssuedLicense, error) {
 	// Load organization and license using GORM
 	db := g.db.GetDB()
 	var org models.Organization
 	if err := db.First(&org, agr.OrganizationID).Error; err != nil {
-		return "", fmt.Errorf("failed to load organization: %w", err)
+		return nil, fmt.Errorf("failed to load organization: %w", err)
 	}
 
 	var lic models.License
 	if err := db.First(&lic, agr.LicenseID).Error; err != nil {
-		return "", fmt.Errorf("failed to load license: %w", err)
+		return nil, fmt.Errorf("failed to load license: %w", err)
 	}
 
 	// Get effective tier (agreement override or license tier)
@@ -63,7 +92,7 @@ func (g *Generator) GenerateTokenFromAgreement(
 
 	// Get effective features (agreement override or license features)
 	features := lic.ResolveFeatures()
-	if agr.Features != nil && len(agr.Features) > 0 {
+	if len(agr.Features) > 0 {
 		features = []string(agr.Features)
 	}
 
@@ -73,14 +102,14 @@ func (g *Generator) GenerateTokenFromAgreement(
 		// Fall back to master signing key if organization-specific key not found
 		signingKey, err = g.keyProvider.GetActiveSigningKey(nil)
 		if err != nil {
-			return "", fmt.Errorf("failed to get signing key: %w", err)
+			return nil, fmt.Errorf("failed to get signing key: %w", err)
 		}
 	}
 
 	// Get private key
 	privateKey, err := g.keyProvider.GetPrivateKey(signingKey.KeyID)
 	if err != nil {
-		return "", fmt.Errorf("failed to get private key: %w", err)
+		return nil, fmt.Errorf("failed to get private key: %w", err)
 	}
 
 	// Create claims from agreement data
@@ -97,10 +126,20 @@ func (g *Generator) GenerateTokenFromAgreement(
 		valueOrZero(agr.ConcurrentLimit),
 		duration,
 		signingKey.KeyID,
+		signingPublicKey,
 	)
 
-	// Generate the token
-	return g.generateToken(claims, privateKey, signingKey.KeyID)
+	token, err := g.generateToken(claims, privateKey, signingKey.KeyID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &IssuedLicense{
+		Token:     token,
+		JTI:       claims.ID,
+		KeyID:     signingKey.KeyID,
+		ExpiresAt: claims.ExpiresAt.Time,
+	}, nil
 }
 
 // generateToken generates a JWT token from the provided claims.
