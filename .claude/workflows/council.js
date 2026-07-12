@@ -1,11 +1,11 @@
 export const meta = {
   name: 'council',
-  description: 'Convene a 5-member council on a hard question: independent positions, cross-examination, then a chair synthesis with dissent recorded',
-  whenToUse: 'Judgment-heavy calls where you want real disagreement rather than agreeable mush. Two rosters: `engineering` for one-way doors in the code (architecture forks, risky refactors, rollout decisions), and `business` for strategic evaluation (what is this product really, who buys it, what kills it). Pass args as {question, roster, artifact?, readOnly?} or just a question string.',
+  description: 'Convene a council on a hard question: independent positions, cross-examination, then a chair synthesis with dissent and vetoes recorded',
+  whenToUse: 'Judgment-heavy calls where you want real disagreement rather than agreeable mush. Two rosters: `engineering` (5 seats) for one-way doors in the code — architecture forks, risky refactors, rollout decisions; and `business` (8 seats) for strategic evaluation — what is this product really, who buys it, what kills it. The business roster models the buy side as four separate parties with unequal power (qa-csv and procurement hold vetoes), so an unresolved veto cannot be outvoted by enthusiasm. A business run costs 17 agents. Pass args as {question, roster, artifact?, readOnly?, repo?} or just a question string.',
   phases: [
-    { title: 'Deliberate', detail: 'five members form independent positions' },
-    { title: 'Cross-examine', detail: 'each member rebuts the others' },
-    { title: 'Chair', detail: 'synthesize a judgment, record dissent' },
+    { title: 'Deliberate', detail: 'each seat forms an independent position, blind to the others' },
+    { title: 'Cross-examine', detail: 'each seat rebuts and fact-checks the others' },
+    { title: 'Chair', detail: 'synthesize a judgment; record dissent and any veto' },
   ],
 }
 
@@ -374,11 +374,24 @@ const REBUTTAL = {
 
 const VERDICT = {
   type: 'object',
-  required: ['judgment', 'rationale', 'consensus', 'dissent', 'conditions', 'openQuestions'],
+  required: ['judgment', 'rationale', 'consensus', 'blockers', 'dissent', 'conditions', 'openQuestions'],
   properties: {
     judgment: { type: 'string', description: 'The council\'s answer, stated so someone could act on it tomorrow.' },
     rationale: { type: 'string', description: 'The reasoning that actually carried the room.' },
-    consensus: { type: 'string', enum: ['unanimous', 'majority', 'split', 'no-consensus'] },
+    consensus: { type: 'string', enum: ['unanimous', 'majority', 'split', 'no-consensus', 'blocked'] },
+    blockers: {
+      type: 'array',
+      description: 'One entry for EVERY seat holding standing "veto", whether or not it blocked. A veto-holder who did NOT block must still appear, with blocking=false. If any entry has blocking=true and that block was not retired during cross-examination, consensus MUST be "blocked" — regardless of how many other seats were positive.',
+      items: {
+        type: 'object',
+        required: ['seat', 'blocking', 'whatWouldUnblock'],
+        properties: {
+          seat: { type: 'string' },
+          blocking: { type: 'boolean', description: 'Did this veto-holder block, and did the block survive cross-examination?' },
+          whatWouldUnblock: { type: 'string', description: 'The specific thing that would have to exist for the block to be withdrawn — concrete enough to build or buy, not "improve compliance". If blocking=false, say what kept them from blocking; that is load-bearing and may be fragile.' },
+        },
+      },
+    },
     dissent: {
       type: 'array',
       description: 'Minority positions, preserved rather than averaged away. A council that erases its dissent is worth nothing.',
@@ -500,8 +513,18 @@ log(`${positions.length} positions filed. Cross-examining.`)
 // position before it can rebut. This is the step that makes it a council rather
 // than five parallel monologues.
 phase('Cross-examine')
+// Standing is printed into the record the chair actually reads. Asserting it only
+// in the chair's prompt is not enough — the asymmetry has to be visible next to
+// the seat that holds it, at the moment the chair is weighing that seat.
+const STANDING_GLOSS = {
+  veto: 'VETO — this seat\'s "no" is dispositive; its "yes" means little',
+  demand: 'DEMAND — cannot approve; its indifference kills quietly',
+  signature: 'SIGNATURE — can approve, but only if no veto-holder blocks',
+  advisory: 'ADVISORY — argues; holds no power over the purchase',
+}
+
 const transcript = positions
-  .map((p) => `### Seat: ${p.seat} (confidence: ${p.confidence})
+  .map((p) => `### Seat: ${p.seat} (standing: ${STANDING_GLOSS[p.standing] || p.standing}; confidence: ${p.confidence})
 **Position:** ${p.position}
 **Reasoning:** ${p.reasoning}
 **Evidence:** ${p.evidence.join('; ') || '(none cited)'}
@@ -536,7 +559,10 @@ confirm it, say so and cite the source they should have given. If it is wrong, s
 
 Then state your position again, revised or not.`,
     { label: `rebut:${p.seat}`, phase: 'Cross-examine', model: p.model, effort: p.effort, schema: REBUTTAL },
-  ).then((r) => (r ? { seat: p.seat, ...r } : null)),
+    // standing is re-attached by hand: unlike round 1, this does not spread the
+    // seat object, and REBUTTAL does not return standing. Drop this and the veto
+    // goes invisible to the chair at exactly the moment it matters.
+  ).then((r) => (r ? { seat: p.seat, standing: p.standing, ...r } : null)),
 ))).filter(Boolean)
 
 log(`${rebuttals.length} rebuttals filed. The chair will synthesize.`)
@@ -544,7 +570,7 @@ log(`${rebuttals.length} rebuttals filed. The chair will synthesize.`)
 // --- Round 3: the chair ------------------------------------------------------
 phase('Chair')
 const rebuttalText = rebuttals
-  .map((r) => `### Seat: ${r.seat} (confidence after cross-examination: ${r.confidence})
+  .map((r) => `### Seat: ${r.seat} (standing: ${STANDING_GLOSS[r.standing] || r.standing}; confidence after cross-examination: ${r.confidence})
 **Conceded:** ${r.concessions.join('; ') || '(nothing)'}
 **Objected:** ${r.objections.join('; ') || '(nothing)'}
 **Revised position:** ${r.revisedRecommendation}`)
@@ -567,8 +593,32 @@ You did not sit on this council; you are reading its record. Synthesize a judgme
 
 Weigh the arguments, do not count the votes — a lone well-evidenced seat beats four seats agreeing from
 habit. Say plainly where the council converged and where it did not. **Preserve the dissent**: record the
-minority position and the world in which it turns out to be right. Do not average five views into a mush
+minority position and the world in which it turns out to be right. Do not average the views into a mush
 that no member would defend.
+
+## Standing is not the same as persuasiveness
+
+The seats do not have equal power, and the record above tells you which is which. Read it.
+
+The count of positive seats is NOT the judgment. This council can and should be able to return "seven of
+eight seats liked it, and the answer is still no." That is not a failure of the council; that is the
+council working.
+
+- A seat with VETO standing that blocks, and whose block was not retired during cross-examination, means the
+  consensus is **blocked** — no matter how strong the champion was, no matter how many seats were positive.
+  Do not average a veto into a dissent bullet. Do not let a majority outvote it. It does not work that way
+  in the world you are modeling.
+- A veto-holder's *approval*, by contrast, is nearly worthless as a buy signal. Passing validation or vendor
+  qualification does not make anyone want the thing. Do not read it as enthusiasm.
+- A DEMAND seat's enthusiasm cannot close anything. Its indifference, however, is fatal — quietly. Weigh it
+  as a necessary condition, never a sufficient one.
+- A SIGNATURE seat can say yes only downstream of the vetoes.
+
+You MUST fill \`blockers\` with one entry for EVERY veto-holding seat, including those that did not block.
+
+If a veto was RETIRED during cross-examination — the veto-holder conceded that some specific thing genuinely
+satisfies them — say so explicitly and loudly in your rationale. That is the single most informative event
+this council can produce, and it must not be buried as a concession bullet.
 
 Discount any seat that argued its brief instead of the evidence. The devil's advocate is *supposed* to
 attack and the champion is *supposed* to defend; that is their office, not their credibility. Weigh what
@@ -582,7 +632,7 @@ true, and whatever the council genuinely could not settle.`,
 
 return {
   question: QUESTION,
-  seats: positions.map((p) => ({ seat: p.seat, model: p.model, opening: p.position, confidence: p.confidence })),
+  seats: positions.map((p) => ({ seat: p.seat, model: p.model, standing: p.standing, opening: p.position, confidence: p.confidence })),
   rebuttals,
   verdict,
 }
