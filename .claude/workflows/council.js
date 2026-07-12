@@ -18,7 +18,21 @@ export const meta = {
 // repo:   defaults to the canonical root. An earlier checkout lived elsewhere
 //         (pharmalytica-era); same code, wrong home. Do not hardcode a path here.
 // ---------------------------------------------------------------------------
-const input = typeof args === 'string' ? { question: args } : (args || {})
+// args can arrive as a real object, or — depending on how the caller encodes it —
+// as a JSON *string* of that object. Handle both. Getting this wrong is silent and
+// expensive: the whole JSON blob becomes the "question", `roster` reads undefined,
+// and the council quietly convenes the DEFAULT roster to answer a garbled prompt.
+// It looks like it is working right up until you read the transcript.
+let raw = args
+if (typeof raw === 'string' && raw.trim().startsWith('{')) {
+  try {
+    raw = JSON.parse(raw)
+  } catch (e) {
+    throw new Error(`council: args looked like JSON but would not parse: ${e.message}`)
+  }
+}
+
+const input = typeof raw === 'string' ? { question: raw } : (raw || {})
 const QUESTION = input.question
 const ROSTER = input.roster || 'engineering'
 const ARTIFACT = input.artifact || 'the janus repository at its current HEAD'
@@ -475,7 +489,11 @@ ${GROUNDING[ROSTER] || GROUNDING.engineering}
 - Take a side. A seat that hedges has abstained.
 - Be specific enough to be WRONG. A claim vague enough that it cannot be falsified is not a contribution.`
 
-log(`Convening a ${SEATS.length}-member council on: ${QUESTION}`)
+// Name the roster and the seats out loud. The failure this guards against is a
+// silent fallback to the default roster, which is invisible until you read a
+// transcript and notice the wrong people are in the room.
+log(`Convening the "${ROSTER}" roster — ${SEATS.length} seats: ${SEATS.map((s) => s.seat).join(', ')}`)
+log(`Question: ${QUESTION}`)
 
 // --- Round 1: independent positions -----------------------------------------
 // Deliberately parallel and blind: no seat sees another's view yet, so we get
