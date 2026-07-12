@@ -49,16 +49,38 @@ The license JWT's `claims.SigningPublicKey` — the one value that could anchor 
 startup by `ValidateSigningKeyPair` (`internal/license/validator/validator.go:173-210`) and then
 **discarded**. It is never plumbed into verification.
 
-### 3. `UpdateRun` silently invalidates signatures (live bug)
+### 3. `UpdateRun` silently invalidates signatures (live bug — CONFIRMED BY TEST)
 
-`AddRun` signs at creation (`store.go:315-319`). `UpdateRun` then mutates the record — status, exit code,
-description — and re-signs **only if `record.Signature == ""`** (`store.go:560`), which it never is.
-So `UpdateRun` rewrites the file with **mutated content and a stale signature**.
+**Reproduced**, not merely inferred. `internal/runlog/update_signature_test.go` walks the exact
+production path (`AddRun` with a signer → mutate status/exit code → `UpdateRun` → reload → verify):
 
-Any record that goes through `AddRun` → `UpdateRun` therefore fails verification and renders as
-*tampered*. Nothing malicious occurred; this is the app's own normal completion path
+```
+signature at creation:  mWYY6HDUpLCcZ1Eb6Y0BTNIfUQA5byG0...
+signature after update: mWYY6HDUpLCcZ1Eb6Y0BTNIfUQA5byG0...   <- identical; never re-signed
+status on disk:         completed                              <- but the content changed
+
+signature verification failed: crypto/rsa: verification error
+```
+
+The signature is byte-identical across the update while the signed content changed. The record on disk
+is signed over `status: running` but contains `status: completed`. `VerifyRecordStatus` returns
+`VerificationInvalid` — Janus renders its own normal completion path as tampering. Every run that starts
+and then finishes, with signing enabled, is permanently unverifiable.
+
+The test is committed and currently **fails by design**: it is the regression test this work must turn
+green.
+
+
+The mechanism: `AddRun` signs at creation (`store.go:315-319`), unconditionally when a signer is present.
+`UpdateRun` then mutates the record — status, exit code, description — and re-signs **only if
+`record.Signature == ""`** (`store.go:560`), which it never is, because `AddRun` just set it. The guard's
+own comment says *"isn't already signed"*, so it is deliberate, not a typo. `writeRunFileLocked` then
+persists the **mutated content with the stale signature**.
+
+Nothing malicious occurs; this is the app's own normal completion path
 (`internal/mcpservice/result.go:80`, `internal/gui/app.go:4430`). It only manifests when a signer is
-configured — i.e. exactly on the compliance path the feature exists to serve.
+configured — i.e. exactly on the compliance path the feature exists to serve, which is why it has gone
+unnoticed.
 
 ## The root cause
 
