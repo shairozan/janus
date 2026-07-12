@@ -143,7 +143,7 @@ func WriteHead(path string, h *Head) error {
 	}
 
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return fmt.Errorf("writing head temp file: %w", err)
 	}
 
