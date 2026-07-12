@@ -2,6 +2,7 @@ package runlog
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -428,6 +429,22 @@ func (s *RunLogStore) sealLocked(record *RunRecord) error {
 	}
 	defer func() { _ = fileLock.Unlock() }()
 
+	// The in-memory record.Sealed flag is only this process's view. Another
+	// process (or an earlier call on this same store against a stale caller
+	// struct) may have already sealed this ID on disk; that is the only
+	// authoritative answer, so read it directly, bypassing s.cache.
+	if onDisk, err := s.loadRunFromDiskLocked(record.ID); err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("checking on-disk seal state for record %s: %w", record.ID, err)
+		}
+		// No file on disk yet for this ID — nothing to protect against.
+	} else if onDisk.Sealed {
+		return fmt.Errorf(
+			"record %s is already sealed on disk; corrections are amendments, not rewrites",
+			record.ID,
+		)
+	}
+
 	sequence, prevHash, err := s.nextChainLocked()
 	if err != nil {
 		return err
@@ -440,6 +457,8 @@ func (s *RunLogStore) sealLocked(record *RunRecord) error {
 	// Sign LAST — after every other field is final.
 	if err := SignRecordWithInfo(record, s.signer, s.signerEmail); err != nil {
 		record.Sealed = false
+		record.Sequence = 0
+		record.PrevHash = ""
 
 		return fmt.Errorf("signing record: %w", err)
 	}
@@ -459,7 +478,31 @@ func (s *RunLogStore) sealLocked(record *RunRecord) error {
 	}
 
 	if err := WriteHead(s.headPath(), head); err != nil {
-		return err
+		// The record file is now fully sealed and signed on disk at this
+		// sequence, but the head checkpoint still points at the previous one.
+		// If we return here without repair, the next seal will read the stale
+		// head and hand this same sequence number to a DIFFERENT record,
+		// orphaning this one outside the chain forever. Roll the record file
+		// back out so on-disk state stays consistent with the head.
+		filename := filepath.Join(s.runlogDir(), record.ID+".json")
+
+		if removeErr := os.Remove(filename); removeErr != nil {
+			return fmt.Errorf(
+				"writing chain head: %w; additionally, rolling back sealed record %s failed: %v"+
+					" — the run log chain may now be inconsistent and requires manual verification",
+				err, record.ID, removeErr,
+			)
+		}
+
+		// Rollback succeeded: the sealed file is gone, so undo the in-memory
+		// mutations too, leaving the caller's record exactly as it was found.
+		delete(s.cache, record.ID)
+		record.Sealed = false
+		record.Sequence = 0
+		record.PrevHash = ""
+		clearSignatureFields(record)
+
+		return fmt.Errorf("writing chain head: %w; sealed record %s was rolled back", err, record.ID)
 	}
 
 	return nil
@@ -605,6 +648,28 @@ func (s *RunLogStore) loadRunLocked(id string) (*RunRecord, error) {
 	return &record, nil
 }
 
+// loadRunFromDiskLocked reads and unmarshals a run record directly from its file,
+// bypassing s.cache entirely. Unlike loadRunLocked, this is the authoritative
+// answer for questions like "is this record sealed?" — the in-memory cache is only
+// this process's possibly-stale view, but two RunLogStore instances (e.g. the GUI
+// and the daemon) can be pointed at the same directory, and only the file on disk
+// is shared truth between them. Caller must hold at least read lock.
+func (s *RunLogStore) loadRunFromDiskLocked(id string) (*RunRecord, error) {
+	filename := filepath.Join(s.runlogDir(), id+".json")
+
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("reading run file: %w", err)
+	}
+
+	var record RunRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		return nil, fmt.Errorf("unmarshaling record: %w", err)
+	}
+
+	return &record, nil
+}
+
 // GetLatestRun returns the most recent run record.
 func (s *RunLogStore) GetLatestRun() (*RunRecord, error) {
 	s.mu.RLock()
@@ -666,8 +731,12 @@ func (s *RunLogStore) UpdateRun(record *RunRecord) error {
 	defer s.mu.Unlock()
 
 	// Trust the record on disk, not the caller's in-memory copy — the caller may
-	// be holding a stale struct, and "am I sealed?" must be answered by the file.
-	if existing, err := s.loadRunLocked(record.ID); err == nil && existing.Sealed {
+	// be holding a stale struct, and "am I sealed?" must be answered by the file,
+	// not by s.cache. loadRunLocked would happily return this process's own
+	// possibly-stale cached copy on a cache hit; loadRunFromDiskLocked always
+	// reads the file, which is the only state shared across store instances
+	// (e.g. the GUI and the daemon pointed at the same run log directory).
+	if existing, err := s.loadRunFromDiskLocked(record.ID); err == nil && existing.Sealed {
 		return fmt.Errorf(
 			"run %s is sealed and cannot be modified; append an amendment record instead",
 			record.ID,
