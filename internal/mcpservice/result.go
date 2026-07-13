@@ -74,9 +74,6 @@ func ApplyRunResult(ctx context.Context, store *runlog.RunLogStore, runID string
 		record.Status = "failed"
 	}
 
-	// Clear any existing signature so UpdateRun will re-sign.
-	record.Signature = ""
-
 	if err := store.UpdateRun(record); err != nil {
 		return fmt.Errorf("failed to update run record: %w", err)
 	}

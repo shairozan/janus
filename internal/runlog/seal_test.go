@@ -312,6 +312,17 @@ func TestSealRestoresRecordWhenRecordWriteFails(t *testing.T) {
 	err := store.UpdateRun(record)
 	require.Error(t, err, "a failed record write must surface as an error, never be silently swallowed")
 
+	// writeRunFileLocked never ran on this path (the directory is read-only), so
+	// restorePreSealLocked's !recordFileWritten branch returns nil without
+	// touching the file at all — there is nothing to "restore", and the error
+	// must not claim otherwise. This pins the recordFileWritten guard: deleting
+	// it would fall through to the write-back/remove branches below, which
+	// operate on a file that was never modified and (on this fresh-record path,
+	// priorExisted == false) would attempt an os.Remove of a file that was never
+	// written, spuriously reporting the chain as inconsistent.
+	require.NotContains(t, err.Error(), "chain may now be inconsistent",
+		"a seal that failed before the record file was ever written must not claim the rollback itself failed")
+
 	// The caller's struct must be back to its pre-seal state — nothing may claim a
 	// chain position or a signature that never reached disk.
 	require.False(t, record.Sealed, "a record that was never written must not stay sealed in memory")
@@ -326,6 +337,9 @@ func TestSealRestoresRecordWhenRecordWriteFails(t *testing.T) {
 	cached, err := store.GetRun(record.ID)
 	require.NoError(t, err)
 	require.False(t, cached.Sealed, "GetRun must not serve a sealed record that exists nowhere on disk")
+	require.Equal(t, "running", cached.Status,
+		"GetRun must not serve the caller's mutated in-memory Status; the cache entry for this ID "+
+			"must be evicted so reads fall through to disk, which still holds the pre-seal draft")
 
 	// Disk truth, read through a second store instance so no cache can mask it.
 	diskStore := NewRunLogStore(store.baseDir, "model.mod")
@@ -543,6 +557,87 @@ func TestSealUpdatesTheIndex(t *testing.T) {
 	require.NotNil(t, entry, "a record sealed via Seal must be present in the index")
 	require.Equal(t, "completed", entry.Status, "the index must reflect the sealed status")
 	require.True(t, entry.Signed, "the index must reflect that the record is now signed")
+}
+
+// TestRebuildIndexSkipsHeadFile pins that rebuildIndex — the path Load takes
+// when index.json is missing or corrupt, and which upsertIndexForRecord falls
+// back to (and then PERSISTS) when the index is corrupt — never turns
+// head.json into a phantom index entry. head.json unmarshals cleanly into a
+// zero-value RunRecord (empty ID, empty Status, Signature == ""... except
+// head.json's shape doesn't even match RunRecord's fields the same way, but
+// json.Unmarshal ignores unknown fields and leaves the rest zero-valued), so
+// without an explicit skip it silently becomes a real-looking-but-empty entry:
+// Count() is off by one, GetRuns returns short pages, and a chain verifier
+// walking the index trips over an ID-less entry.
+func TestRebuildIndexSkipsHeadFile(t *testing.T) {
+	store, _ := newSignedStore(t)
+
+	record := &RunRecord{ModelFile: "model.mod", Status: "completed"}
+	require.NoError(t, store.AddRun(record))
+	require.True(t, record.Sealed, "sealing is what creates head.json")
+
+	// head.json must actually exist, or this test would pass trivially.
+	_, err := os.Stat(store.headPath())
+	require.NoError(t, err, "the sealed record must have produced a head.json to skip")
+
+	// Force the designed rebuild path: delete index.json and load a fresh store
+	// over the same directory, exactly as Load's fallback and
+	// upsertIndexForRecord's corrupt-index fallback do.
+	require.NoError(t, os.Remove(store.indexPath()))
+
+	fresh := NewRunLogStore(store.baseDir, "model.mod")
+	require.NoError(t, fresh.Load())
+
+	require.Equal(t, 1, fresh.Count(), "head.json must not be counted as a run")
+
+	runs, err := fresh.GetRuns(100, 0)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+
+	for _, e := range fresh.index.Entries {
+		require.NotEmpty(t, e.ID, "no index entry may have an empty ID")
+	}
+}
+
+// TestSealWithNoSignerDoesNotUpsertIndex pins that Seal only touches the index
+// when it actually sealed something. sealLocked no-ops (returns nil, record
+// left untouched) when no signer is configured, so the caller is free to have
+// already mutated the record's Status before calling Seal — a legitimate
+// no-signer deployment simply never signs anything. Before the fix, Seal
+// upserted the index unconditionally, so the index would report the caller's
+// mutated in-memory Status ("completed") while the file on disk — and the
+// record's own Sealed flag — still said "running".
+func TestSealWithNoSignerDoesNotUpsertIndex(t *testing.T) {
+	store := NewRunLogStore(t.TempDir(), "model.mod")
+	require.NoError(t, store.Load())
+
+	record := &RunRecord{ModelFile: "model.mod", Status: "running"}
+	require.NoError(t, store.AddRun(record))
+	require.False(t, record.Sealed)
+
+	// Caller mutates its own struct to a terminal status before calling Seal —
+	// exactly the shape of the production "record the outcome" step, just
+	// invoked directly instead of through UpdateRun.
+	record.Status = "completed"
+	require.NoError(t, store.Seal(record))
+	require.False(t, record.Sealed, "with no signer configured, Seal has nothing to seal with")
+
+	var entry *RunIndexEntry
+
+	for i := range store.index.Entries {
+		if store.index.Entries[i].ID == record.ID {
+			entry = &store.index.Entries[i]
+		}
+	}
+
+	require.NotNil(t, entry, "the draft must still be in the index from AddRun")
+	require.Equal(t, "running", entry.Status,
+		"a no-op Seal must not desync the index from disk with the caller's unsealed mutation")
+
+	onDisk, err := store.loadRunFromDiskLocked(record.ID)
+	require.NoError(t, err)
+	require.Equal(t, "running", onDisk.Status, "the file on disk must be unchanged")
+	require.Equal(t, entry.Status, onDisk.Status, "the index must match disk")
 }
 
 func TestUnsignedStoreStillWorks(t *testing.T) {

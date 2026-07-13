@@ -95,6 +95,20 @@ func (s *RunLogStore) headPath() string {
 	return filepath.Join(s.runlogDir(), "head.json")
 }
 
+// isReservedRunlogFile reports whether name is one of the runlog directory's
+// metadata files rather than a run record — index.json (the rebuildable query
+// cache) or head.json (the signed chain-tip checkpoint). rebuildIndex globs
+// every *.json file in the directory, so any metadata file added here in the
+// future must be listed to avoid becoming a phantom index entry.
+func isReservedRunlogFile(name string) bool {
+	switch name {
+	case "index.json", "head.json":
+		return true
+	default:
+		return false
+	}
+}
+
 // IsTerminal reports whether a status means the run is over and the record is now
 // an audit fact rather than mutable state.
 func IsTerminal(status string) bool {
@@ -182,8 +196,8 @@ func (s *RunLogStore) rebuildIndex() (*RunIndex, error) {
 	entries := make([]RunIndexEntry, 0, len(files))
 
 	for _, file := range files {
-		// Skip index file
-		if filepath.Base(file) == "index.json" {
+		// Skip reserved metadata files (index.json, head.json) — they are not runs.
+		if isReservedRunlogFile(filepath.Base(file)) {
 			continue
 		}
 
@@ -191,6 +205,15 @@ func (s *RunLogStore) rebuildIndex() (*RunIndex, error) {
 		if err != nil {
 			// Skip corrupted files but log warning
 			log.Printf("Warning: skipping corrupted run file %s: %v", file, err)
+
+			continue
+		}
+
+		// A record with no ID is not a run — guard against any future metadata
+		// file (or a truly corrupt/empty run file) silently unmarshaling into a
+		// zero-value RunRecord and entering the index as a phantom entry.
+		if entry.ID == "" {
+			log.Printf("Warning: skipping run file %s with empty ID", file)
 
 			continue
 		}
@@ -408,6 +431,17 @@ func (s *RunLogStore) Seal(record *RunRecord) error {
 
 	if err := s.sealLocked(record); err != nil {
 		return err
+	}
+
+	// sealLocked no-ops when no signer is configured — the record stays an
+	// unsigned draft on disk, exactly as AddRun/UpdateRun last wrote it. Upserting
+	// the index here would only be safe if the caller had not already mutated the
+	// record in memory (as the no-signer path explicitly permits, since there is
+	// no immutability to protect yet); a caller that flips Status after building
+	// the record but before calling Seal would otherwise desync the index from
+	// disk. Only a real seal changes what belongs in the index.
+	if !record.Sealed {
+		return nil
 	}
 
 	// A sealed record that is not in the index is invisible to GetRuns/GetAllRuns
@@ -831,7 +865,12 @@ func (s *RunLogStore) UpdateRun(record *RunRecord) error {
 	// possibly-stale cached copy on a cache hit; loadRunFromDiskLocked always
 	// reads the file, which is the only state shared across store instances
 	// (e.g. the GUI and the daemon pointed at the same run log directory).
-	if existing, err := s.loadRunFromDiskLocked(record.ID); err == nil && existing.Sealed {
+	existing, err := s.loadRunFromDiskLocked(record.ID)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("checking on-disk seal state for record %s: %w", record.ID, err)
+	}
+
+	if err == nil && existing.Sealed {
 		return fmt.Errorf(
 			"run %s is sealed and cannot be modified; append an amendment record instead",
 			record.ID,
