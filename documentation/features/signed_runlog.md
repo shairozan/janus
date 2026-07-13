@@ -2,11 +2,11 @@
 
 ## Overview
 
-Janus implements cryptographic signing of run log entries to ensure audit trail integrity for CFR 21 Part 11 compliance. Each execution record is signed with an RSA-SHA256 signature, providing:
+Janus implements cryptographic signing and hash-chaining of run log entries to ensure audit trail integrity for CFR 21 Part 11 compliance. Each execution record is signed with an RSA-SHA256 signature and linked into a hash chain anchored by a signed checkpoint, providing:
 
-- **Tamper Evidence**: Any modification to a signed record is detectable
-- **Non-Repudiation**: Signatures are tied to specific users via their license
-- **Multi-User Support**: Records can be verified by any team member, regardless of who signed them
+- **Tamper Evidence**: Modification of a sealed record, and removal, insertion, duplication, reordering, or tail truncation of records from the log **as a set**, are all detectable and named. This is not unconditional — see [Integrity Guarantees](#integrity-guarantees) for exactly what is covered and what is not.
+- **Non-Repudiation**: Signatures are tied to specific users via their license, and are only ever verified against a trust anchor — a record's own embedded key can never vouch for itself
+- **Multi-User Support**: Records can be verified by any team member, regardless of who signed them, provided the signer's key is present in the trust store
 - **Merge Conflict Prevention**: UUID-based directory storage eliminates Git conflicts
 
 ## Storage Architecture
@@ -63,17 +63,22 @@ The previous single-file approach (`model.janus_history.json`) caused merge conf
 
 ```
 ┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│  Load Record    │────▶│  Extract Signer  │────▶│  Verify Against │
-│                 │     │  Public Key      │     │  Embedded Key   │
+│  Load Record    │────▶│  Look Up Signer  │────▶│  Verify Against │
+│                 │     │  Fingerprint in  │     │  Trust Store's  │
+│                 │     │  the Trust Store │     │  Copy of the Key│
 └─────────────────┘     └──────────────────┘     └─────────────────┘
                                                           │
                                                           ▼
                                                ┌─────────────────────┐
                                                │  ✓ Valid            │
                                                │  ✗ Invalid          │
+                                               │  ✗ Untrusted        │
+                                               │  ? Unsigned         │
                                                │  ? Unverifiable     │
                                                └─────────────────────┘
 ```
+
+The record still carries a `signer_public_key` field, but verification never trusts it: a record's own embedded key is exactly what an attacker controls, so letting a record vouch for itself would let a forged record pass. The signer's `signer_fingerprint` is looked up in a `TrustStore` instead, and the signature is checked against *that* store's copy of the key — never the one on the record.
 
 ## What Gets Signed
 
@@ -98,6 +103,11 @@ The signature covers the **entire run record** at the time of signing, except fo
 | `stderr_compressed` | Captured standard error |
 | `description_compressed` | User-provided description |
 | `embedded_files` | Output files (lst, ext, phi, xml, etc.) |
+| `sequence` | This record's position in the hash chain |
+| `prev_hash` | Hash of the previous sealed record — the chain link |
+| `sealed` | Marks the record immutable; a sealed record can never be re-signed in place |
+
+Because `sequence` and `prev_hash` are set *before* signing and are covered by the same signature as everything else, a record cannot be renumbered or re-linked without invalidating its own signature — see [Integrity Guarantees](#integrity-guarantees) for what this buys at the level of the whole log.
 
 ### Excluded from Signature
 
@@ -177,12 +187,14 @@ Each signed record includes the signer's public key:
 }
 ```
 
-When verifying:
-1. Extract the embedded public key from the record
-2. Verify the signature against that key
-3. If valid, the record hasn't been tampered with
+The embedded `signer_public_key` is informational — it is what lets the UI display "Signed by alice@company.com" without a network call — but it is **not** what verification trusts. A record vouching for its own authenticity with its own embedded key is exactly what a forged record would also do. Verification instead:
 
-This means **any team member can verify any record**, regardless of who signed it.
+1. Reads the record's `signer_fingerprint`
+2. Looks that fingerprint up in a `TrustStore` (the commercial build anchors this in the license's signing key claim; the open-source build anchors it in a user- or org-maintained keyring — see `internal/runlog/trust.go`)
+3. If the fingerprint is not found, the record is reported **Untrusted** — never Valid, no matter how cryptographically sound the signature is
+4. If the fingerprint is found, the signature is verified against the trust store's own copy of the key, never the record's
+
+This means **any team member can verify any record signed by a key the trust store recognizes**, regardless of who signed it — and a record signed by a key nobody authorized is flagged as such, not silently accepted.
 
 ## Verification Status
 
@@ -190,24 +202,31 @@ The run history table displays verification status for each record:
 
 | Icon | Status | Meaning |
 |------|--------|---------|
-| ✓ | Valid | Signature verified successfully |
-| ✗ | Invalid | Signature verification failed - record may have been modified |
+| ✓ | Valid | Signature verified against a key the trust store recognizes — record intact |
+| ✗ | Invalid | Signer is trusted, but the signature does not check out — record may have been modified |
+| ✗ | Untrusted | Signature is cryptographically sound, but the signing key's fingerprint is not in the trust store. Never rendered green — this is how a forged or unauthorized-key record announces itself |
 | ? | Unsigned | Record has no signature |
-| ? | Unverifiable | Signed but no public key available (legacy records) |
+| ? | Unverifiable | No trust anchor (license or keyring) is configured for this store at all — nothing can be checked yet |
 
 ### Status Details
 
 **Valid (Green ✓)**
 - Signature present
-- Embedded public key available
-- Verification succeeded
+- Signer's fingerprint found in the trust store
+- Signature verified against the trust store's copy of the key
 - Display: "Signed by alice@company.com"
 
 **Invalid (Red ✗)**
-- Signature present
-- Verification failed
+- Signature present, signer's fingerprint IS in the trust store
+- Verification against the trust store's key failed
 - Record has been modified after signing
 - Display: "Signature invalid - record may have been modified"
+
+**Untrusted (Red ✗)**
+- Signature present and internally well-formed
+- Signer's fingerprint is NOT in the trust store — covers both a forged/unauthorized key and a legacy record whose key was never registered
+- Never displayed as green: a signature nobody authorized proves nothing about the record's integrity
+- Display: "Signed by an UNAUTHORIZED key (...) — not trusted"
 
 **Unsigned (Gray ?)**
 - No signature field
@@ -216,9 +235,32 @@ The run history table displays verification status for each record:
 
 **Unverifiable (Gray ?)**
 - Signature present
-- No embedded public key (legacy record)
-- No fallback key available
-- Display: "Signed by Unknown (cannot verify - no public key)"
+- No trust anchor configured for this store (no license, no keyring) — there is nothing to check the signer's fingerprint against yet
+- This is a store-wide condition, not a per-record one: every record shows this way until a trust anchor is configured
+- Display: "Signed (cannot verify — no trust anchor configured)"
+
+## Integrity Guarantees
+
+A signature on an individual record only proves that record was not altered. It says nothing about whether the *set* of records is complete — a signed record simply vanishing is invisible to a check that only ever looks at one record at a time. Chain verification (`VerifyChain` / `RunLogStore.VerifyIntegrity`, `internal/runlog/verify.go` and `chain.go`) is the piece that closes that gap: sealed records carry a monotonic `sequence` and a `prev_hash` linking each one to its predecessor, both covered by the record's own signature, and the chain's declared tip is itself signed in a separate `head.json` checkpoint.
+
+### Detected
+
+- **Modification** of a sealed record — its RSA-SHA256 signature no longer verifies.
+- **Removal** of a sealed record from anywhere but the very end of the chain — a hole in the `sequence`/`prev_hash` linkage. The report names the missing sequence (e.g. "gap at sequence 17") and every surviving record still correctly reports Valid; a neighbour vanishing does not make the records next to it forgeries.
+- **Duplication or insertion** — two records claiming the same `sequence` are detected and named, distinctly from a gap.
+- **Reordering or renumbering** — the chain commits to order via `prev_hash`, so records cannot be relabeled or shuffled without breaking the link.
+- **Forgery with an unauthorized key** — verification looks the signer's fingerprint up in a `TrustStore`; a record's own embedded key is never treated as authority for itself. A signature from a key nobody authorized reports **Untrusted**, which never renders green.
+- **Truncation of the newest records** — a signed `head.json` checkpoint declares the expected chain length and tip hash. A pure hash chain by itself CANNOT detect this: a truncated chain is still perfectly self-consistent, which is exactly why the head checkpoint exists.
+- **Corrupt (unreadable) record files** — reported as corrupt/unreadable, distinctly from a missing file, so an auditor is not told a file was deleted when it was merely damaged.
+- **Its own tamper history**: a detected break is itself appended to the chain as a sealed, signed `KindIntegrityEvent` record (`RunLogStore.AppendIntegrityEvent`), so the log carries evidence that Janus detected the break, when, and under whose signing key — not merely that a gap currently exists.
+
+Accidental deletion — the case auditors most often actually encounter, as opposed to a deliberate attack — is fully covered, including deletion of the newest record(s): an accidental `rm` does not also re-sign a shorter `head.json`, so it is caught by the tip check exactly like a deliberate truncation.
+
+### Known Limits
+
+- **An attacker holding both the signing private key and write access to the run-log directory can delete the newest records and re-sign a shorter head.** Nothing in a purely local audit log can prevent this — the head checkpoint is only as trustworthy as the key that signs it, and a compromised key can re-certify any history. Detecting this requires an external witness (a remote append-only log or an independent countersignature), which Janus does not currently implement.
+- **The system can prove that a record was removed; it cannot explain why.** Malicious deletion, an operator's `rm -rf`, and a flaky sync client all produce the identical, indistinguishable signal: a gap or a tip mismatch. Making removal *evident* is the whole job of this feature; establishing the cause is necessarily a human, out-of-band task.
+- Index.json (`internal/runlog/store.go`) is a rebuildable performance cache used only to enumerate candidate record IDs quickly — it carries no trust of its own. Editing or deleting entries from it does not hide a tampered or missing record from `VerifyIntegrity`, because chain verification is anchored in each record's own signed `sequence`/`prev_hash`, not in the index.
 
 ## CFR 21 Part 11 Compliance
 
@@ -226,9 +268,9 @@ This implementation addresses key CFR 21 Part 11 requirements:
 
 | Requirement | Implementation |
 |-------------|----------------|
-| **11.10(a)** Validation | Signature verification validates record integrity |
-| **11.10(c)** Protection of records | Cryptographic signatures detect unauthorized modifications |
-| **11.10(e)** Audit trail | Complete execution metadata is signed and tamper-evident |
+| **11.10(a)** Validation | Signature verification validates record integrity; chain verification validates that the record set is complete |
+| **11.10(c)** Protection of records | Cryptographic signatures detect modification of a sealed record; hash chaining plus a signed head checkpoint detect deletion, insertion, duplication, reordering, and tail truncation of records against a trust anchor — see [Integrity Guarantees](#integrity-guarantees) for what is, and is not, covered |
+| **11.10(e)** Audit trail | Execution metadata is signed and chained. Modification of a sealed record, and removal, insertion, duplication, reordering, or truncation of records from the log, are detected and named — the missing or duplicated sequence is reported, not just "something is wrong." This does **not** hold against an attacker who possesses both the signing private key and write access to the run-log directory; see [Known Limits](#known-limits) |
 | **11.50** Signature manifestations | Signer identity (email) stored with signature |
 | **11.70** Signature linking | Signature cryptographically bound to record content |
 | **11.100** General requirements | RSA-2048 provides adequate security |
@@ -250,11 +292,17 @@ You generated keys with `ssh-keygen` instead of OpenSSL.
 
 **Solution:** Regenerate keys using OpenSSL commands above.
 
-### Records showing "?" but were signed
+### Records showing "?" (Unverifiable)
 
-Legacy records signed before signer provenance was added don't have embedded public keys.
+No trust anchor (license or keyring) is configured for this store at all. This affects every record uniformly — it is not specific to legacy records.
 
-**Solution:** No action needed. New records will include full signer provenance.
+**Solution:** Configure a license (commercial build) or a keyring (open-source build) as the trust anchor.
+
+### Records showing "✗" (Untrusted) that you believe were legitimately signed
+
+Once a trust anchor IS configured, a record whose signer fingerprint is not in it renders **Untrusted**, not a soft "?" — including old records signed before signer fingerprints were tracked, or by a key that has since been rotated out. This is deliberate: verification never falls back to a record's own embedded key, because that is exactly what a forged record would also supply.
+
+**Solution:** If the record is legitimate, add the historical signer's public key to the trust store/keyring so its fingerprint resolves. If you do not recognize the signer, treat this as a genuine finding — not a UI quirk to dismiss.
 
 ## Security Considerations
 
@@ -262,6 +310,7 @@ Legacy records signed before signer provenance was added don't have embedded pub
 2. **Key rotation** - If a key is compromised, request a new license with a new public key
 3. **Backup keys securely** - Lost private keys cannot be recovered
 4. **Verify before trusting** - Always check the verification status in the UI
+5. **A compromised key defeats the chain, not just individual records** - Someone holding your private key AND write access to the run-log directory can delete the newest sealed records and re-sign a shorter `head.json` that is internally consistent. This is a fundamental limit of any locally-verified log, not a bug — see [Known Limits](#known-limits). Protecting the private key is what protects the whole audit trail, not merely one signature.
 
 ## API Reference
 
@@ -276,16 +325,24 @@ Signs a run record with full signer provenance.
 ### VerifyRecordStatus
 
 ```go
-func VerifyRecordStatus(record *RunRecord, fallbackPublicKeyPEM string) VerificationResult
+func VerifyRecordStatus(record *RunRecord, trust TrustStore) VerificationResult
 ```
 
-Returns detailed verification status for UI display.
+Returns detailed verification status for UI display. Verifies against the trust store's copy of the signer's key, looked up by fingerprint — never against the record's own embedded `signer_public_key`.
+
+### VerifyChain
+
+```go
+func VerifyChain(records []*RunRecord, head *Head, trust TrustStore) ChainReport
+```
+
+Verifies the sealed records **as a set**: sequence continuity, no sequence claimed twice, intact `prev_hash` links, and a tip that matches the signed head. `records` must be sealed records sorted ascending by `Sequence`. See `RunLogStore.VerifyIntegrity`, which loads the sealed records and head from a store and calls this.
 
 ### VerificationResult
 
 ```go
 type VerificationResult struct {
-    Status  VerificationStatus  // Valid, Invalid, Unsigned, Unverifiable
+    Status  VerificationStatus  // Valid, Invalid, Untrusted, Unsigned, Unverifiable, ChainBroken
     Message string              // Human-readable description
     Signer  string              // Email of signer (if known)
 }
