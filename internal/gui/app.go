@@ -103,6 +103,12 @@ type App struct {
 	runLogStore         *runlog.RunLogStore
 	cachedRuns          []runlog.RunRecord // Local cache of runs for table display
 
+	// integrityBanner is a persistent, non-dismissable warning shown above the run
+	// table when VerifyIntegrity finds the run log broken (a gap, a duplicate
+	// sequence, an untrusted head, ...). It warns loudly but never blocks — no
+	// modal, so the user keeps working instead of learning to click through one.
+	integrityBanner *widget.Label
+
 	// Run comparison components
 	selectedRunsForCompare map[string]bool // Run IDs selected for comparison
 	compareButton          *widget.Button  // "Compare Selected" button
@@ -1198,8 +1204,16 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 	// Container for action buttons (allows show/hide)
 	a.compareButtonContainer = container.NewHBox(a.inheritParametersButton, a.diagnosticsButton, a.compareButton, a.visualizeButton)
 
+	// Persistent, non-dismissable integrity banner. Hidden until
+	// verifyRunLogIntegrity finds the run log broken; see that method.
+	a.integrityBanner = widget.NewLabel("")
+	a.integrityBanner.Importance = widget.DangerImportance
+	a.integrityBanner.Wrapping = fyne.TextWrapWord
+	a.integrityBanner.Hide()
+
 	// Header area with title, header table, and compare button
 	headerArea := container.NewVBox(
+		a.integrityBanner,
 		container.NewBorder(
 			nil, nil,
 			widget.NewLabel("Run History"),
@@ -3787,6 +3801,8 @@ func (a *App) setupModelRunHistory(modelFilePath string) {
 	// Load existing run logs (creates directory structure if needed)
 	if err := a.runLogStore.Load(); err != nil {
 		a.sendError(fmt.Errorf("failed to load run history: %w", err))
+	} else {
+		a.verifyRunLogIntegrity()
 	}
 
 	// Refresh cached runs for table display
@@ -3798,6 +3814,66 @@ func (a *App) setupModelRunHistory(modelFilePath string) {
 			a.runHistoryTable.Refresh()
 		})
 	}
+}
+
+// setIntegrityBanner shows or hides the persistent, non-dismissable run-log
+// integrity banner above the run table. Safe to call from any goroutine.
+func (a *App) setIntegrityBanner(text string, show bool) {
+	fyne.Do(func() {
+		if a.integrityBanner == nil {
+			return
+		}
+
+		if !show {
+			a.integrityBanner.Hide()
+
+			return
+		}
+
+		a.integrityBanner.SetText(text)
+		a.integrityBanner.Show()
+	})
+}
+
+// verifyRunLogIntegrity checks the run log as a set right after it is loaded and
+// warns loudly — without blocking — if VerifyChain finds it broken (a gap, a
+// duplicate sequence, an untrusted chain head, ...). The user keeps working; a
+// modal here would only teach people to click through modals.
+//
+// A detected break is also recorded INTO the chain via AppendIntegrityEvent, so
+// the log carries its own tamper history: an auditor sees not only that a
+// record vanished, but that Janus noticed, when, and under whose key.
+//
+// a.trustStore is nil when no license/keyring is configured; VerifyIntegrity
+// calls into the trust store unconditionally to check the head signature, so a
+// nil trust store is guarded here rather than risking a panic or a false
+// "broken" report — verification is simply skipped, and any previously shown
+// banner (from a different model) is cleared.
+func (a *App) verifyRunLogIntegrity() {
+	if a.trustStore == nil || a.runLogStore == nil {
+		a.setIntegrityBanner("", false)
+
+		return
+	}
+
+	report, err := a.runLogStore.VerifyIntegrity(a.trustStore)
+	if err != nil {
+		a.sendError(fmt.Errorf("verifying run log integrity: %w", err))
+
+		return
+	}
+
+	if report.OK {
+		a.setIntegrityBanner("", false)
+
+		return
+	}
+
+	if err := a.runLogStore.AppendIntegrityEvent(report); err != nil {
+		a.sendError(fmt.Errorf("recording run log integrity event: %w", err))
+	}
+
+	a.setIntegrityBanner(report.Summary(), true)
 }
 
 // refreshCachedRuns updates the local cache of runs for table display. Saga

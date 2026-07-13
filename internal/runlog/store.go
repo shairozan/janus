@@ -930,6 +930,58 @@ func (s *RunLogStore) VerifyIntegrity(trust TrustStore) (ChainReport, error) {
 	return report, nil
 }
 
+// AppendIntegrityEvent records a detected chain break INTO the chain, as a sealed
+// and signed record — the log thereby carries its own tamper history: an auditor
+// sees not only that a record vanished, but that Janus detected it, when, and
+// under whose key.
+//
+// It is a no-op for a healthy log — a clean run log must not accumulate noise —
+// and it is a no-op when the most recently recorded integrity event already
+// describes the exact same break. Without that check, every Load/VerifyIntegrity
+// pass over an unhealed gap would append another event, and AppendIntegrityEvent
+// itself advances the chain, so a single missing record would otherwise spawn a
+// fresh integrity event every time the model is opened.
+func (s *RunLogStore) AppendIntegrityEvent(report ChainReport) error {
+	if report.OK {
+		return nil
+	}
+
+	signature := report.breakSignature()
+
+	sealed, _, err := s.SealedRecords()
+	if err != nil {
+		return fmt.Errorf("checking for prior integrity events: %w", err)
+	}
+
+	var lastEvent *RunRecord
+
+	for _, record := range sealed {
+		if record.Kind == KindIntegrityEvent {
+			lastEvent = record
+		}
+	}
+
+	if lastEvent != nil && lastEvent.IntegrityFingerprint == signature {
+		// The most recent integrity event already describes this exact break —
+		// do not duplicate it.
+		return nil
+	}
+
+	record := &RunRecord{
+		ModelFile:            s.modelFile,
+		Kind:                 KindIntegrityEvent,
+		Status:               "completed",
+		Timestamp:            time.Now(),
+		IntegrityFingerprint: signature,
+	}
+
+	if err := record.SetDescription(report.Summary()); err != nil {
+		return fmt.Errorf("recording integrity event description: %w", err)
+	}
+
+	return s.AddRun(record)
+}
+
 // UpdateRun updates a DRAFT record — a run that is still in flight. When the
 // update carries the run to a terminal status, the record is sealed: chained,
 // signed, and made immutable.

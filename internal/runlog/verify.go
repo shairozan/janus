@@ -97,6 +97,49 @@ func (r ChainReport) Summary() string {
 	return b.String()
 }
 
+// breakSignature reduces a report to the identity of the tamper it describes —
+// which sequences are missing or duplicated, which record files are unreadable,
+// whether the head is untrusted, and the direction (not magnitude) of any tip
+// mismatch. It deliberately omits Sealed, ActualTip and ExpectedTip: those
+// counters advance every time a new record is sealed, including an
+// integrity-event record recording a PRIOR break, so comparing the full
+// rendered Summary() would treat the very act of recording a break as a new,
+// distinct one and duplicate the event on every subsequent verification. This
+// is what AppendIntegrityEvent compares to recognise "this is the same break as
+// last time."
+func (r ChainReport) breakSignature() string {
+	var b strings.Builder
+
+	for _, gap := range r.Gaps {
+		fmt.Fprintf(&b, "gap:%d;", gap.MissingSequence)
+	}
+
+	for _, dup := range r.Duplicates {
+		fmt.Fprintf(&b, "dup:%d:%s;", dup.Sequence, strings.Join(dup.IDs, ","))
+	}
+
+	for _, id := range r.Unreadable {
+		fmt.Fprintf(&b, "unreadable:%s;", id)
+	}
+
+	if r.HeadUntrusted {
+		b.WriteString("head-untrusted;")
+	}
+
+	if r.TipMismatch {
+		switch {
+		case r.ActualTip < r.ExpectedTip:
+			b.WriteString("tip-truncated;")
+		case r.ActualTip > r.ExpectedTip:
+			b.WriteString("tip-not-advanced;")
+		default:
+			b.WriteString("tip-mismatch;")
+		}
+	}
+
+	return b.String()
+}
+
 // VerifyChain verifies the sealed records as a set: contiguous sequences, no
 // sequence claimed twice, intact prev-hash links, and a tip that matches the
 // signed head.

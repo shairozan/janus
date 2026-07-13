@@ -75,6 +75,11 @@ const (
 	KindSaga = "saga"
 	// KindFit marks a child record — one fit within a saga.
 	KindFit = "fit"
+	// KindIntegrityEvent marks a record that exists to testify that the chain was
+	// found broken. The log thereby carries its own tamper history: an auditor sees
+	// not only that a record vanished, but that Janus detected it, when, and under
+	// whose key. It also makes delete-then-restore visible.
+	KindIntegrityEvent = "integrity-event"
 )
 
 // RunRecord represents a single NONMEM execution with embedded output files.
@@ -109,6 +114,17 @@ type RunRecord struct {
 	// Amends names the ID of a sealed record this record corrects. Sealed records
 	// are immutable, so a correction is an append, never a rewrite.
 	Amends string `json:"amends,omitempty"`
+
+	// IntegrityFingerprint identifies the specific chain anomaly a
+	// KindIntegrityEvent record describes — which sequences are missing or
+	// duplicated, which record files are unreadable, whether the head is
+	// untrusted, and the direction of any tip mismatch — deliberately excluding
+	// counters (Sealed, ActualTip, ExpectedTip) that trivially grow every time a
+	// new record, including the integrity event itself, is sealed. This is what
+	// AppendIntegrityEvent compares to recognise "this is the same break as last
+	// time" without being fooled by its own bookkeeping. Empty for every other
+	// kind of record. See ChainReport.breakSignature.
+	IntegrityFingerprint string `json:"integrity_fingerprint,omitempty"`
 
 	// Container provenance for Hermes executions (CFR 21 Part 11 compliance)
 	// Captures image URI, tag, SHA digest, and resource configuration
