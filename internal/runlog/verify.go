@@ -2,6 +2,7 @@ package runlog
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -10,6 +11,15 @@ type ChainGap struct {
 	AfterSequence    int    // the last sequence present before the hole
 	MissingSequence  int    // the sequence that is absent
 	ExpectedPrevHash string // what the following record expected to chain to
+}
+
+// ChainDuplicate is two or more sealed records claiming the same chain
+// Sequence. Deletion is not the only way to tamper with a hash-chained log —
+// inserting (or duplicating) a record at an already-occupied sequence is just
+// as damaging, and is invisible to a check that only looks for holes.
+type ChainDuplicate struct {
+	Sequence int      // the sequence claimed by more than one record
+	IDs      []string // the record IDs claiming it
 }
 
 // ChainReport is the result of verifying the run log AS A SET.
@@ -22,6 +32,8 @@ type ChainReport struct {
 	OK            bool
 	Sealed        int
 	Gaps          []ChainGap
+	Duplicates    []ChainDuplicate
+	Unreadable    []string // record IDs whose files exist but could not be loaded
 	TipMismatch   bool
 	ExpectedTip   int
 	ActualTip     int
@@ -49,9 +61,31 @@ func (r ChainReport) Summary() string {
 		}
 	}
 
+	if len(r.Duplicates) > 0 {
+		fmt.Fprintf(&b, "\n  %d sequence(s) claimed by more than one record.", len(r.Duplicates))
+
+		for _, dup := range r.Duplicates {
+			fmt.Fprintf(&b, "\n  Duplicate at sequence %d: %s", dup.Sequence, strings.Join(dup.IDs, ", "))
+		}
+	}
+
+	if len(r.Unreadable) > 0 {
+		fmt.Fprintf(&b, "\n  %d record file(s) exist but could not be read (corrupt, not merely missing): %s",
+			len(r.Unreadable), strings.Join(r.Unreadable, ", "))
+	}
+
 	if r.TipMismatch {
-		fmt.Fprintf(&b, "\n  Tip mismatch: head declares sequence %d, highest present is %d — the newest record(s) were removed.",
-			r.ExpectedTip, r.ActualTip)
+		switch {
+		case r.ActualTip < r.ExpectedTip:
+			fmt.Fprintf(&b, "\n  Tip mismatch: head declares sequence %d, highest present is %d — the newest record(s) were removed.",
+				r.ExpectedTip, r.ActualTip)
+		case r.ActualTip > r.ExpectedTip:
+			fmt.Fprintf(&b, "\n  Tip mismatch: head declares sequence %d but records exist up to %d — the head was not advanced, or was rolled back.",
+				r.ExpectedTip, r.ActualTip)
+		default:
+			fmt.Fprintf(&b, "\n  Tip mismatch: head declares sequence %d, highest present is %d.",
+				r.ExpectedTip, r.ActualTip)
+		}
 	}
 
 	if r.HeadUntrusted {
@@ -63,8 +97,9 @@ func (r ChainReport) Summary() string {
 	return b.String()
 }
 
-// VerifyChain verifies the sealed records as a set: contiguous sequences, intact
-// prev-hash links, and a tip that matches the signed head.
+// VerifyChain verifies the sealed records as a set: contiguous sequences, no
+// sequence claimed twice, intact prev-hash links, and a tip that matches the
+// signed head.
 //
 // records MUST be sealed records sorted ascending by Sequence.
 func VerifyChain(records []*RunRecord, head *Head, trust TrustStore) ChainReport {
@@ -78,10 +113,19 @@ func VerifyChain(records []*RunRecord, head *Head, trust TrustStore) ChainReport
 		report.Records[record.ID] = VerifyRecordStatus(record, trust)
 	}
 
-	// Sequence continuity. Sequences start at 1 and must not skip.
+	// Sequence continuity. Sequences start at 1 and must not skip. Along the
+	// way, also collect every record ID seen at each sequence — a duplicate
+	// (two records claiming the same sequence) is a distinct failure mode from
+	// a gap, and neither this loop nor the prev-hash loop below would notice
+	// it on their own: a duplicate that does not exceed "expected" never
+	// trips the gap check, and the prev-hash loop only ever compares adjacent
+	// PAIRS, not "how many records share this sequence".
 	expected := 1
+	bySequence := make(map[int][]string, len(records))
 
 	for _, record := range records {
+		bySequence[record.Sequence] = append(bySequence[record.Sequence], record.ID)
+
 		for record.Sequence > expected {
 			report.Gaps = append(report.Gaps, ChainGap{
 				AfterSequence:    expected - 1,
@@ -95,6 +139,32 @@ func VerifyChain(records []*RunRecord, head *Head, trust TrustStore) ChainReport
 		expected = record.Sequence + 1
 	}
 
+	sequences := make([]int, 0, len(bySequence))
+	for sequence := range bySequence {
+		sequences = append(sequences, sequence)
+	}
+
+	sort.Ints(sequences)
+
+	for _, sequence := range sequences {
+		ids := bySequence[sequence]
+		if len(ids) < 2 {
+			continue
+		}
+
+		sort.Strings(ids)
+		report.OK = false
+		report.Duplicates = append(report.Duplicates, ChainDuplicate{Sequence: sequence, IDs: ids})
+
+		for _, id := range ids {
+			result := report.Records[id]
+			result.Status = VerificationChainBroken
+			result.Message = fmt.Sprintf("Sequence %d is claimed by %d records — duplicate or inserted record (%s)",
+				sequence, len(ids), strings.Join(ids, ", "))
+			report.Records[id] = result
+		}
+	}
+
 	// Prev-hash linkage between adjacent survivors. Only meaningful where no gap
 	// separates them — across a gap the break is already reported above.
 	for i := 1; i < len(records); i++ {
@@ -105,7 +175,19 @@ func VerifyChain(records []*RunRecord, head *Head, trust TrustStore) ChainReport
 		}
 
 		previousHash, err := RecordHash(previous)
-		if err != nil || current.PrevHash != previousHash {
+		if err != nil {
+			report.OK = false
+
+			result := report.Records[current.ID]
+			result.Status = VerificationChainBroken
+			result.Message = fmt.Sprintf("Cannot verify chain link at sequence %d — record %d could not be hashed: %v",
+				current.Sequence, previous.Sequence, err)
+			report.Records[current.ID] = result
+
+			continue
+		}
+
+		if current.PrevHash != previousHash {
 			report.OK = false
 
 			result := report.Records[current.ID]
