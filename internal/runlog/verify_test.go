@@ -214,11 +214,6 @@ func TestDuplicateSequenceIsDetected(t *testing.T) {
 	duplicatePath := filepath.Join(store.runlogDir(), uuid.Must(uuid.NewV7()).String()+".json")
 	require.NoError(t, os.WriteFile(duplicatePath, data, 0600))
 
-	// Force the index to notice the new file, the way a fresh process opening
-	// this directory would.
-	require.NoError(t, os.Remove(store.indexPath()))
-	require.NoError(t, store.Load())
-
 	report, err := store.VerifyIntegrity(trust)
 	require.NoError(t, err)
 
@@ -227,6 +222,132 @@ func TestDuplicateSequenceIsDetected(t *testing.T) {
 	require.Len(t, report.Duplicates, 1, "exactly one sequence is duplicated")
 	require.Equal(t, 2, report.Duplicates[0].Sequence, "the report must name WHICH sequence collided")
 	require.Contains(t, report.Summary(), "2", "the summary must mention the duplicated sequence")
+}
+
+// CRITICAL: the integrity check must not be anchored on index.json.
+//
+// index.json is, by explicit design, an untrusted, rebuildable performance
+// cache. SealedRecords used to enumerate its entries — so a sealed record file
+// present on disk but ABSENT from the index was never enumerated, never
+// verified, and never reported. A duplicate could be planted simply by not
+// touching the index, and the log reported "Run log intact".
+//
+// Before the enumeration fix this test FAILED: OK was true and Duplicates was
+// empty. It passes only because SealedRecords now globs the directory.
+func TestDuplicateIsDetectedWithoutRebuildingTheIndex(t *testing.T) {
+	store, publicKeyPEM := newSignedStore(t)
+	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	require.NoError(t, err)
+
+	records := sealN(t, store, 3)
+
+	victim := records[1]
+	require.Equal(t, 2, victim.Sequence)
+
+	data, err := os.ReadFile(filepath.Join(store.runlogDir(), victim.ID+".json"))
+	require.NoError(t, err)
+
+	// cp <sequence-2 record>.json <new-uuid>.json, and DO NOT touch index.json:
+	// the planted file is invisible to the index, which is precisely the point.
+	duplicatePath := filepath.Join(store.runlogDir(), uuid.Must(uuid.NewV7()).String()+".json")
+	require.NoError(t, os.WriteFile(duplicatePath, data, 0600))
+
+	indexBefore, err := os.ReadFile(store.indexPath())
+	require.NoError(t, err)
+
+	// A fresh store, as a fresh process opening this directory would be — it
+	// loads the STALE index, which still lists only three records.
+	fresh := NewRunLogStore(store.baseDir, "model.mod")
+	require.NoError(t, fresh.Load())
+
+	indexAfter, err := os.ReadFile(fresh.indexPath())
+	require.NoError(t, err)
+	require.Equal(t, indexBefore, indexAfter,
+		"the index must not have been rebuilt — this test is worthless if it is")
+
+	report, err := fresh.VerifyIntegrity(trust)
+	require.NoError(t, err)
+
+	require.False(t, report.OK,
+		"a planted sealed record must be detected even when index.json never mentions it: %s", report.Summary())
+	require.Len(t, report.Duplicates, 1, "exactly one sequence is duplicated")
+	require.Equal(t, 2, report.Duplicates[0].Sequence, "the report must name WHICH sequence collided")
+	require.Equal(t, 4, report.Sealed, "the planted file is a fourth sealed record on disk")
+	require.NotContains(t, report.Summary(), "intact")
+}
+
+// The other half of insertion: a foreign sealed record file whose sequence lies
+// beyond the head's declared tip, absent from the index. It is not a duplicate
+// of anything — it is a record the chain never made room for, and it must not
+// pass unnoticed.
+func TestInsertedForeignSealedRecordIsDetected(t *testing.T) {
+	store, publicKeyPEM := newSignedStore(t)
+	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	require.NoError(t, err)
+
+	sealN(t, store, 3)
+
+	foreign := &RunRecord{
+		ID:        uuid.Must(uuid.NewV7()).String(),
+		ModelFile: "model.mod",
+		Status:    "completed",
+		Sealed:    true,
+		Sequence:  9,
+		PrevHash:  "fabricated",
+	}
+
+	data, err := json.MarshalIndent(foreign, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(store.runlogDir(), foreign.ID+".json"), data, 0600))
+
+	// index.json is left untouched: it still lists three records.
+	fresh := NewRunLogStore(store.baseDir, "model.mod")
+	require.NoError(t, fresh.Load())
+
+	report, err := fresh.VerifyIntegrity(trust)
+	require.NoError(t, err)
+
+	require.False(t, report.OK,
+		"a record beyond the signed tip must never verify as an intact chain: %s", report.Summary())
+	require.True(t, report.TipMismatch, "the head declares 3; a record claims 9")
+	require.Equal(t, 3, report.ExpectedTip)
+	require.Equal(t, 9, report.ActualTip)
+	require.True(t, report.HasIntegrityBreak())
+	require.NotContains(t, report.Summary(), "intact")
+}
+
+// Regression guard for the enumeration change: the index used to be what made a
+// deletion visible (the entry survived, the file did not). Directory
+// enumeration must keep detecting it — via the survivors' own signed sequences,
+// which are supposed to run contiguously 1..N.
+func TestDeletionStillDetectedAfterEnumerationChange(t *testing.T) {
+	store, publicKeyPEM := newSignedStore(t)
+	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	require.NoError(t, err)
+
+	records := sealN(t, store, 5)
+
+	victim := records[2]
+	require.Equal(t, 3, victim.Sequence)
+	require.NoError(t, os.Remove(filepath.Join(store.runlogDir(), victim.ID+".json")))
+
+	fresh := NewRunLogStore(store.baseDir, "model.mod")
+	require.NoError(t, fresh.Load())
+
+	report, err := fresh.VerifyIntegrity(trust)
+	require.NoError(t, err)
+
+	require.False(t, report.OK, "a deleted record must still break the chain")
+	require.Len(t, report.Gaps, 1)
+	require.Equal(t, 3, report.Gaps[0].MissingSequence)
+	require.Empty(t, report.Unreadable, "a deleted file is missing, not corrupt")
+	require.Equal(t, 4, report.Sealed)
+
+	// Survivors are intact and must still say so.
+	for _, survivor := range []*RunRecord{records[0], records[1], records[3], records[4]} {
+		require.Equal(t, VerificationValid, report.Records[survivor.ID].Status,
+			"record at sequence %d survived the deletion untouched", survivor.Sequence)
+	}
 }
 
 // Finding 2: the wording must not lie about which direction the tip moved.

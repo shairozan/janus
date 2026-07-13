@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -786,9 +787,16 @@ func (s *RunLogStore) loadRunLocked(id string) (*RunRecord, error) {
 // and the daemon) can be pointed at the same directory, and only the file on disk
 // is shared truth between them. Caller must hold at least read lock.
 func (s *RunLogStore) loadRunFromDiskLocked(id string) (*RunRecord, error) {
-	filename := filepath.Join(s.runlogDir(), id+".json")
+	return s.loadRunFromPathLocked(filepath.Join(s.runlogDir(), id+".json"))
+}
 
-	data, err := os.ReadFile(filename)
+// loadRunFromPathLocked reads and unmarshals a run record from an explicit file
+// path. Enumeration of the run log directory must go through this rather than
+// through loadRunFromDiskLocked: a record file's NAME is not required to agree
+// with the ID inside it, and an inserted or duplicated file is precisely the
+// case where it does not. Caller must hold at least read lock.
+func (s *RunLogStore) loadRunFromPathLocked(path string) (*RunRecord, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading run file: %w", err)
 	}
@@ -859,29 +867,44 @@ func (s *RunLogStore) GetAllRuns() []RunRecord {
 // genuinely absent file is what CREATES the sequence gap the chain check
 // exists to detect, but a corrupt file sitting right there on disk is not a
 // deletion, and must not be reported as one.
+//
+// Enumeration is over the DIRECTORY, never over s.index. index.json is by
+// design an untrusted, rebuildable performance cache, and anchoring the
+// integrity check on it made insertion invisible: a sealed record file dropped
+// into the directory but absent from the index was never enumerated, never
+// verified, and never reported. Directory enumeration is strictly stronger —
+// a deletion still shows up as a gap in the surviving records' own SIGNED
+// sequences (the chain must be contiguous 1..N with the head declaring N), and
+// an added file now shows itself as a duplicate or out-of-range sequence.
 func (s *RunLogStore) SealedRecords() ([]*RunRecord, []string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	if s.index == nil {
-		return nil, nil, nil
+	files, err := filepath.Glob(filepath.Join(s.runlogDir(), "*.json"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("scanning run files: %w", err)
 	}
 
-	sealed := make([]*RunRecord, 0, len(s.index.Entries))
+	sealed := make([]*RunRecord, 0, len(files))
 
 	var unreadable []string
 
-	for _, entry := range s.index.Entries {
-		// loadRunFromDiskLocked, not loadRunLocked: a deleted record's file is
-		// exactly the fact this method must surface, and loadRunLocked would
-		// happily paper over the deletion with this process's own stale
-		// s.cache entry (AddRun/Seal populate it on write and nothing ever
-		// invalidates it). Only the file on disk is authoritative here.
-		record, err := s.loadRunFromDiskLocked(entry.ID)
+	for _, file := range files {
+		// index.json and head.json are metadata, not runs.
+		if isReservedRunlogFile(filepath.Base(file)) {
+			continue
+		}
+
+		// The file on disk is authoritative, never s.cache: the cache is only
+		// this process's possibly-stale view (AddRun/Seal populate it on write
+		// and nothing ever invalidates it), and it would happily paper over a
+		// deletion this method exists to surface.
+		record, err := s.loadRunFromPathLocked(file)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				// A missing file is exactly the thing we are here to detect.
-				// Do not swallow it — the chain check will surface it as a gap.
+				// Raced with a delete between the glob and the read. The file
+				// is gone, which is exactly the thing we are here to detect —
+				// the chain check will surface it as a gap.
 				continue
 			}
 
@@ -889,7 +912,17 @@ func (s *RunLogStore) SealedRecords() ([]*RunRecord, []string, error) {
 			// error, etc). Do not fold this into the gap it would otherwise
 			// masquerade as — surface it distinctly so the report can say
 			// "corrupt", not "missing".
-			unreadable = append(unreadable, entry.ID)
+			unreadable = append(unreadable, runIDFromPath(file))
+
+			continue
+		}
+
+		// A record with no ID is not a record. It cannot be keyed, named in a
+		// report, or told apart from any other ID-less file — but it is sitting
+		// in the run log directory failing to be a run, so report it as corrupt
+		// rather than silently dropping it.
+		if record.ID == "" {
+			unreadable = append(unreadable, runIDFromPath(file))
 
 			continue
 		}
@@ -903,7 +936,15 @@ func (s *RunLogStore) SealedRecords() ([]*RunRecord, []string, error) {
 		return sealed[i].Sequence < sealed[j].Sequence
 	})
 
+	sort.Strings(unreadable)
+
 	return sealed, unreadable, nil
+}
+
+// runIDFromPath names a run file that could not be parsed into a record. Its ID
+// is unknowable — the only identity such a file has is its own name.
+func runIDFromPath(path string) string {
+	return strings.TrimSuffix(filepath.Base(path), ".json")
 }
 
 // VerifyIntegrity verifies the run log as a set — the check that did not exist
