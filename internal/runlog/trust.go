@@ -61,7 +61,16 @@ func (k *KeySet) Trusted(fingerprint string) bool {
 }
 
 // Describe returns the identity behind a fingerprint.
+//
+// The empty-fingerprint guard mirrors Trusted's. Without it the two methods
+// disagree on the same input — a KeySet holding a zero-value identity would
+// report Describe("") as found while Trusted("") said no — and an unsigned or
+// fingerprint-less record must never resolve to a trusted signer.
 func (k *KeySet) Describe(fingerprint string) (SignerIdentity, bool) {
+	if fingerprint == "" {
+		return SignerIdentity{}, false
+	}
+
 	identity, ok := k.byFingerprint[fingerprint]
 
 	return identity, ok
