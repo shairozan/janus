@@ -107,7 +107,21 @@ type App struct {
 	// table when VerifyIntegrity finds the run log broken (a gap, a duplicate
 	// sequence, an untrusted head, ...). It warns loudly but never blocks — no
 	// modal, so the user keeps working instead of learning to click through one.
+	//
+	// The widget is built lazily by buildRunDetailsTab, which createRunDetailsTab
+	// only calls AFTER setupModelRunHistory (and therefore verifyRunLogIntegrity)
+	// on the very first model load. So the WARNING STATE lives independently in
+	// integrityWarning below; the widget is just a view onto it, seeded from it
+	// whenever the widget is (re)built, so it does not matter which runs first.
 	integrityBanner *widget.Label
+
+	// integrityMu guards integrityWarning.
+	integrityMu sync.Mutex
+
+	// integrityWarning is the current run-log integrity banner text, held as App
+	// state so a break detected before a.integrityBanner exists is never lost.
+	// Empty means no active warning. See integrityBanner above.
+	integrityWarning string
 
 	// Run comparison components
 	selectedRunsForCompare map[string]bool // Run IDs selected for comparison
@@ -1204,12 +1218,22 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 	// Container for action buttons (allows show/hide)
 	a.compareButtonContainer = container.NewHBox(a.inheritParametersButton, a.diagnosticsButton, a.compareButton, a.visualizeButton)
 
-	// Persistent, non-dismissable integrity banner. Hidden until
-	// verifyRunLogIntegrity finds the run log broken; see that method.
+	// Persistent, non-dismissable integrity banner. Seeded from a.integrityWarning
+	// rather than starting hidden unconditionally: verifyRunLogIntegrity runs
+	// during setupModelRunHistory, which happens BEFORE createRunDetailsTab
+	// builds this widget on the very first model load, so a break detected on
+	// that first load must still show up once the widget exists. See
+	// setIntegrityBanner.
 	a.integrityBanner = widget.NewLabel("")
 	a.integrityBanner.Importance = widget.DangerImportance
 	a.integrityBanner.Wrapping = fyne.TextWrapWord
-	a.integrityBanner.Hide()
+
+	if warning := a.integrityWarningText(); warning != "" {
+		a.integrityBanner.SetText(warning)
+		a.integrityBanner.Show()
+	} else {
+		a.integrityBanner.Hide()
+	}
 
 	// Header area with title, header table, and compare button
 	headerArea := container.NewVBox(
@@ -3818,7 +3842,22 @@ func (a *App) setupModelRunHistory(modelFilePath string) {
 
 // setIntegrityBanner shows or hides the persistent, non-dismissable run-log
 // integrity banner above the run table. Safe to call from any goroutine.
+//
+// It always writes the warning STATE (integrityWarning) first, then updates the
+// widget if one has been built yet. Writing only the widget was the bug: on the
+// very first model load, verifyRunLogIntegrity runs before a.integrityBanner
+// exists, and the old code silently dropped the warning when the widget was
+// nil. Now the state survives regardless of build order, and
+// buildRunDetailsTab seeds the widget from it whenever it is constructed.
 func (a *App) setIntegrityBanner(text string, show bool) {
+	a.integrityMu.Lock()
+	if show {
+		a.integrityWarning = text
+	} else {
+		a.integrityWarning = ""
+	}
+	a.integrityMu.Unlock()
+
 	fyne.Do(func() {
 		if a.integrityBanner == nil {
 			return
@@ -3833,6 +3872,16 @@ func (a *App) setIntegrityBanner(text string, show bool) {
 		a.integrityBanner.SetText(text)
 		a.integrityBanner.Show()
 	})
+}
+
+// integrityWarningText returns the currently recorded run-log integrity
+// warning, or "" if the chain last verified clean. Safe to call from any
+// goroutine.
+func (a *App) integrityWarningText() string {
+	a.integrityMu.Lock()
+	defer a.integrityMu.Unlock()
+
+	return a.integrityWarning
 }
 
 // verifyRunLogIntegrity checks the run log as a set right after it is loaded and

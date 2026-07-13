@@ -31,6 +31,12 @@ type RunLogStore struct {
 	signerEmail string
 	trust       TrustStore // Trust anchor for signature verification (nil if not configured)
 
+	// lastCheckWasHealthy records whether the immediately preceding
+	// VerifyIntegrity call against this store found the chain intact. See
+	// ChainReport.healedSincePriorCheck, which is stamped from this field, and
+	// AppendIntegrityEvent, which reads it.
+	lastCheckWasHealthy bool
+
 	mu sync.RWMutex // Protects index and cache
 }
 
@@ -927,8 +933,27 @@ func (s *RunLogStore) VerifyIntegrity(trust TrustStore) (ChainReport, error) {
 		report.OK = false
 	}
 
+	// Stamp the report with whether the PREVIOUS check on this store was
+	// healthy, then record this check's own result for the next call. The
+	// stamp must happen here, before this method returns, so the report
+	// AppendIntegrityEvent later receives carries the state as of this exact
+	// call — reading s.lastCheckWasHealthy from inside AppendIntegrityEvent
+	// instead would race against any VerifyIntegrity call made in between.
+	s.mu.Lock()
+	report.healedSincePriorCheck = s.lastCheckWasHealthy
+	s.lastCheckWasHealthy = report.OK
+	s.mu.Unlock()
+
 	return report, nil
 }
+
+// ErrIntegrityEventRequiresSigner is returned by AppendIntegrityEvent when no
+// signer is configured. An unsigned "integrity event" would be an unsigned
+// ASSERTION that the log was tampered with — worthless as evidence to an
+// auditor, and, because dedup only ever consults SIGNED (sealed) records,
+// nothing would ever bound how many such assertions accumulate. Rather than
+// degrade to that, AppendIntegrityEvent refuses to write anything at all.
+var ErrIntegrityEventRequiresSigner = errors.New("cannot append integrity event: no signer is configured")
 
 // AppendIntegrityEvent records a detected chain break INTO the chain, as a sealed
 // and signed record — the log thereby carries its own tamper history: an auditor
@@ -937,13 +962,33 @@ func (s *RunLogStore) VerifyIntegrity(trust TrustStore) (ChainReport, error) {
 //
 // It is a no-op for a healthy log — a clean run log must not accumulate noise —
 // and it is a no-op when the most recently recorded integrity event already
-// describes the exact same break. Without that check, every Load/VerifyIntegrity
-// pass over an unhealed gap would append another event, and AppendIntegrityEvent
+// describes the exact same break AND the chain has not been healed since that
+// event was recorded. Without the first check, every Load/VerifyIntegrity pass
+// over an unhealed gap would append another event, and AppendIntegrityEvent
 // itself advances the chain, so a single missing record would otherwise spawn a
-// fresh integrity event every time the model is opened.
+// fresh integrity event every time the model is opened. Without the second, a
+// break that recurs AFTER an operator heals the log (restores the same missing
+// record, then loses it again) would be silently folded into the stale prior
+// testimony instead of getting its own timestamp — healing never itself seals a
+// record, so nothing else would mark the recurrence as a new incident. See
+// ChainReport.healedSincePriorCheck.
+//
+// It requires a signer: an unsigned record asserting "the log was tampered
+// with" is not an audit fact, and dedup only ever looks at SEALED records, so
+// writing an unsigned one would also grow the log without bound. See
+// ErrIntegrityEventRequiresSigner.
 func (s *RunLogStore) AppendIntegrityEvent(report ChainReport) error {
 	if report.OK {
 		return nil
+	}
+
+	s.mu.RLock()
+	signerConfigured := s.signer != nil
+	s.mu.RUnlock()
+
+	if !signerConfigured {
+		return fmt.Errorf("%w — the run log break described below was NOT recorded into the chain: %s",
+			ErrIntegrityEventRequiresSigner, report.Summary())
 	}
 
 	signature := report.breakSignature()
@@ -961,9 +1006,9 @@ func (s *RunLogStore) AppendIntegrityEvent(report ChainReport) error {
 		}
 	}
 
-	if lastEvent != nil && lastEvent.IntegrityFingerprint == signature {
-		// The most recent integrity event already describes this exact break —
-		// do not duplicate it.
+	if !report.healedSincePriorCheck && lastEvent != nil && lastEvent.IntegrityFingerprint == signature {
+		// The most recent integrity event already describes this exact break,
+		// and nothing healed the chain in between — do not duplicate it.
 		return nil
 	}
 

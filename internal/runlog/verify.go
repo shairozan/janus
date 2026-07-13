@@ -39,6 +39,17 @@ type ChainReport struct {
 	ActualTip     int
 	HeadUntrusted bool
 	Records       map[string]VerificationResult
+
+	// healedSincePriorCheck is stamped by RunLogStore.VerifyIntegrity: true
+	// when the immediately PRECEDING VerifyIntegrity call against that same
+	// store found the chain intact. It is process-local bookkeeping, not an
+	// audit fact — it is never written into the chain and is deliberately
+	// unexported — that exists solely so AppendIntegrityEvent's dedup rule can
+	// tell "the same unhealed break, seen again because nobody looked in
+	// between" (dedup) apart from "this exact break recurred after the log
+	// was healed" (a NEW incident, which deserves its own testimony). See
+	// AppendIntegrityEvent in store.go.
+	healedSincePriorCheck bool
 }
 
 // Summary renders the report the way a human needs to read it: what is missing,
@@ -259,7 +270,15 @@ func VerifyChain(records []*RunRecord, head *Head, trust TrustStore) ChainReport
 
 	report.ExpectedTip = head.Sequence
 
-	if identity, ok := trust.Describe(head.SignerFingerprint); !ok {
+	// A nil trust store (no license/keyring configured) means there is no
+	// anchor to check the head's signer against — same as VerifyRecordStatus,
+	// this must degrade to "cannot verify", never crash and never read as
+	// Valid. HeadUntrusted already forces report.OK = false, which is exactly
+	// that degradation for the one boolean the report has for head trust.
+	if trust == nil {
+		report.HeadUntrusted = true
+		report.OK = false
+	} else if identity, ok := trust.Describe(head.SignerFingerprint); !ok {
 		report.HeadUntrusted = true
 		report.OK = false
 	} else if err := VerifyHead(head, identity.PublicKeyPEM); err != nil {

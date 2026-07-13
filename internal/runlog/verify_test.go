@@ -169,3 +169,31 @@ func TestSummaryDescribesTipDirectionCorrectly(t *testing.T) {
 	require.Contains(t, summary, "the head was not advanced",
 		"the summary must describe what actually happened: the head fell behind")
 }
+
+// Finding 4: a nil trust store must never panic VerifyChain, and a head it
+// cannot vouch for must never verify as OK — it must degrade to untrusted,
+// the same way VerifyRecordStatus already degrades a nil trust store to
+// Unverifiable for individual records.
+func TestVerifyChainWithNilTrustDoesNotPanicAndDoesNotVerify(t *testing.T) {
+	record := &RunRecord{ID: "r1", Sequence: 1, Status: "completed"}
+
+	head := &Head{Sequence: 1, TipHash: "irrelevant-for-this-test"}
+
+	require.NotPanics(t, func() {
+		report := VerifyChain([]*RunRecord{record}, head, nil)
+
+		require.False(t, report.OK, "a chain head with no trust anchor to check it against must never verify as OK")
+		require.True(t, report.HeadUntrusted, "no trust anchor means the head cannot be vouched for")
+	})
+}
+
+// Finding 4, no-head variant: nil trust with no head at all (a fresh store) must
+// also not panic — VerifyChain returns before ever consulting trust in that
+// case, but this pins it so a future refactor can't reintroduce the panic path
+// unnoticed.
+func TestVerifyChainWithNilTrustAndNoHeadDoesNotPanic(t *testing.T) {
+	require.NotPanics(t, func() {
+		report := VerifyChain(nil, nil, nil)
+		require.True(t, report.OK, "no records and no head is a fresh, untouched log")
+	})
+}
