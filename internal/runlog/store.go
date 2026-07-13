@@ -406,11 +406,74 @@ func (s *RunLogStore) Seal(record *RunRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.sealLocked(record)
+	if err := s.sealLocked(record); err != nil {
+		return err
+	}
+
+	// A sealed record that is not in the index is invisible to GetRuns/GetAllRuns
+	// and therefore to the GUI: rebuildIndex only runs when the index is missing or
+	// corrupt, never merely incomplete. AddRun and UpdateRun both upsert after
+	// sealing; so must this.
+	return s.upsertIndexForRecord(record)
+}
+
+// restorePreSealLocked undoes, in one place, every mutation a failed seal made —
+// the in-memory struct, the cache entry, and the file on disk — so the record is
+// left exactly as it was found and the seal can simply be retried.
+//
+// recordFileWritten says whether writeRunFileLocked already replaced the file; only
+// then does the byte snapshot need to be put back. priorBytes/priorExisted describe
+// what the file held before the seal: a legitimate in-flight DRAFT on the common
+// production path (AddRun writes "running", UpdateRun later seals to "completed"),
+// which must be restored exactly, not deleted — or nothing at all, for a record that
+// arrived already terminal, where removing the file is the correct rollback.
+//
+// The caller holds s.mu and the cross-process file lock.
+func (s *RunLogStore) restorePreSealLocked(
+	record *RunRecord,
+	filename string,
+	priorBytes []byte,
+	priorExisted bool,
+	recordFileWritten bool,
+) error {
+	record.Sealed = false
+	record.Sequence = 0
+	record.PrevHash = ""
+	clearSignatureFields(record)
+
+	// s.cache may hold this very pointer (writeRunFileLocked does
+	// s.cache[record.ID] = record), so a stale sealed struct could otherwise
+	// survive here and be served by GetRun. Drop the entry: the next read comes
+	// from disk, which is the state we are restoring to.
+	delete(s.cache, record.ID)
+
+	if !recordFileWritten {
+		// The file on disk was never touched — it still holds the pre-seal bytes.
+		return nil
+	}
+
+	if priorExisted {
+		if err := writeFileAtomic(filename, priorBytes); err != nil {
+			return fmt.Errorf("restoring pre-seal record file: %w", err)
+		}
+
+		return nil
+	}
+
+	if err := os.Remove(filename); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("removing partially sealed record file: %w", err)
+	}
+
+	return nil
 }
 
 // sealLocked is Seal's body. The caller holds s.mu.
-func (s *RunLogStore) sealLocked(record *RunRecord) error {
+//
+// The error return is named because every failure AFTER the record is mutated must
+// run through the single rollback installed below — a defer, so that no future
+// fallible step can be added between the mutation and the head write without being
+// covered by it.
+func (s *RunLogStore) sealLocked(record *RunRecord) (err error) {
 	if record.Sealed {
 		return fmt.Errorf("record %s is already sealed; corrections are amendments, not rewrites", record.ID)
 	}
@@ -450,40 +513,69 @@ func (s *RunLogStore) sealLocked(record *RunRecord) error {
 		return err
 	}
 
-	record.Sequence = sequence
-	record.PrevHash = prevHash
-	record.Sealed = true
-
-	// Sign LAST — after every other field is final.
-	if err := SignRecordWithInfo(record, s.signer, s.signerEmail); err != nil {
-		record.Sealed = false
-		record.Sequence = 0
-		record.PrevHash = ""
-
-		return fmt.Errorf("signing record: %w", err)
-	}
-
 	// Capture whatever is on disk for this ID right now — an in-flight DRAFT in
 	// the common case, nothing at all for a record that arrives already
-	// terminal — BEFORE writeRunFileLocked overwrites it with the sealed
-	// version. If WriteHead fails below, this is what lets us restore the file
-	// to exactly what it was instead of destroying it.
+	// terminal — BEFORE the record is mutated and writeRunFileLocked overwrites
+	// the file with the sealed version. If anything below fails, this is what
+	// lets the rollback restore the file to exactly what it was instead of
+	// destroying it.
 	filename := filepath.Join(s.runlogDir(), record.ID+".json")
 
-	priorBytes, err := os.ReadFile(filename)
+	priorBytes, readErr := os.ReadFile(filename)
 
 	priorExisted := true
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("reading existing record %s before seal: %w", record.ID, err)
+	if readErr != nil {
+		if !errors.Is(readErr, os.ErrNotExist) {
+			return fmt.Errorf("reading existing record %s before seal: %w", record.ID, readErr)
 		}
 
 		priorExisted = false
 	}
 
-	if err := s.writeRunFileLocked(record); err != nil {
-		return err
+	record.Sequence = sequence
+	record.PrevHash = prevHash
+	record.Sealed = true
+
+	// From here the caller's record (and possibly s.cache, which may hold this very
+	// pointer) claims a chain position it has not earned, and every remaining step
+	// is fallible. ONE rollback covers all of them: signing, the record write, the
+	// hash, the head signature and the head write. Without it a failure would leave
+	// a sealed, sequenced record in memory that exists nowhere on disk — or worse, a
+	// sealed record file above a head that still points at the previous sequence, so
+	// the next seal would hand this same sequence number to a DIFFERENT record and
+	// break the chain permanently. The in-memory guard at the top of this function
+	// would also refuse every retry ("already sealed") for the life of the process.
+	recordFileWritten := false
+
+	defer func() {
+		if err == nil {
+			return
+		}
+
+		restoreErr := s.restorePreSealLocked(record, filename, priorBytes, priorExisted, recordFileWritten)
+		if restoreErr != nil {
+			err = fmt.Errorf(
+				"%w; additionally, restoring record %s to its pre-seal state failed: %v"+
+					" — the run log chain may now be inconsistent and requires manual verification",
+				err, record.ID, restoreErr,
+			)
+
+			return
+		}
+
+		err = fmt.Errorf("%w; record %s was rolled back to its pre-seal state", err, record.ID)
+	}()
+
+	// Sign LAST — after every other field is final.
+	if err := SignRecordWithInfo(record, s.signer, s.signerEmail); err != nil {
+		return fmt.Errorf("signing record: %w", err)
 	}
+
+	if err := s.writeRunFileLocked(record); err != nil {
+		return fmt.Errorf("writing sealed record %s: %w", record.ID, err)
+	}
+
+	recordFileWritten = true
 
 	tipHash, err := RecordHash(record)
 	if err != nil {
@@ -496,44 +588,7 @@ func (s *RunLogStore) sealLocked(record *RunRecord) error {
 	}
 
 	if err := WriteHead(s.headPath(), head); err != nil {
-		// The record file is now fully sealed and signed on disk at this
-		// sequence, but the head checkpoint still points at the previous one.
-		// If we return here without repair, the next seal will read the stale
-		// head and hand this same sequence number to a DIFFERENT record,
-		// orphaning this one outside the chain forever.
-		//
-		// A prior version existing means the standard production path just
-		// destroyed a legitimate, already-persisted DRAFT (AddRun records
-		// "running", UpdateRun later seals to "completed") — that draft must
-		// be restored exactly as it was, not deleted. Only when nothing
-		// existed before this seal attempt (the AddRun-arrives-already-
-		// terminal case) is removing the file the correct rollback.
-		var restoreErr error
-		if priorExisted {
-			restoreErr = writeFileAtomic(filename, priorBytes)
-		} else {
-			restoreErr = os.Remove(filename)
-		}
-
-		if restoreErr != nil {
-			return fmt.Errorf(
-				"writing chain head: %w; additionally, restoring record %s to its pre-seal state"+
-					" failed: %v — the run log chain may now be inconsistent and requires manual"+
-					" verification",
-				err, record.ID, restoreErr,
-			)
-		}
-
-		// Restore succeeded: the file on disk matches what it was before this
-		// seal attempt, so undo the in-memory mutations too, leaving the
-		// caller's record exactly as it was found.
-		delete(s.cache, record.ID)
-		record.Sealed = false
-		record.Sequence = 0
-		record.PrevHash = ""
-		clearSignatureFields(record)
-
-		return fmt.Errorf("writing chain head: %w; sealed record %s was rolled back", err, record.ID)
+		return fmt.Errorf("writing chain head: %w", err)
 	}
 
 	return nil
