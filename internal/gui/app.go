@@ -321,10 +321,6 @@ func (a *App) initTrustStore() {
 	}
 
 	a.trustStore = trust
-
-	if a.runLogStore != nil {
-		a.runLogStore.SetTrustStore(a.trustStore)
-	}
 }
 
 // checkModelingLicense checks if the required modeling software license exists for the given category.
@@ -3819,8 +3815,9 @@ func (a *App) setupModelRunHistory(modelFilePath string) {
 		a.runLogStore.SetSigner(a.signer, a.licenseClaims.UserEmail)
 	}
 
-	// Configure the verification trust anchor (nil degrades to Unverifiable).
-	a.runLogStore.SetTrustStore(a.trustStore)
+	// The verification trust anchor is NOT handed to the store: it is passed
+	// explicitly at each verification call (VerifyIntegrity, VerifyRecordStatus)
+	// by this layer, which owns it.
 
 	// Load existing run logs (creates directory structure if needed)
 	if err := a.runLogStore.Load(); err != nil {
@@ -3893,6 +3890,18 @@ func (a *App) integrityWarningText() string {
 // the log carries its own tamper history: an auditor sees not only that a
 // record vanished, but that Janus noticed, when, and under whose key.
 //
+// The two failure kinds are NOT the same and are not treated the same:
+//
+//   - A genuine integrity break (report.HasIntegrityBreak) — a record missing,
+//     duplicated, corrupt, or modified — is warned about AND sealed into the
+//     chain as testimony.
+//   - An unrecognised signing key is warned about ONLY. It means this
+//     installation's trust store does not hold the signer's key — a colleague
+//     ran the model, or the user rotated their own key — and writing an
+//     immutable "the log was found broken" record into a regulated audit trail
+//     over that would be fabricating evidence. Summary() says so in different
+//     words; the banner shows exactly that text.
+//
 // a.trustStore is nil when no license/keyring is configured; VerifyIntegrity
 // calls into the trust store unconditionally to check the head signature, so a
 // nil trust store is guarded here rather than risking a panic or a false
@@ -3918,8 +3927,12 @@ func (a *App) verifyRunLogIntegrity() {
 		return
 	}
 
-	if err := a.runLogStore.AppendIntegrityEvent(report); err != nil {
-		a.sendError(fmt.Errorf("recording run log integrity event: %w", err))
+	// Only a real break gets written into history. AppendIntegrityEvent enforces
+	// this itself; the guard here keeps the intent legible at the call site.
+	if report.HasIntegrityBreak() {
+		if err := a.runLogStore.AppendIntegrityEvent(report); err != nil {
+			a.sendError(fmt.Errorf("recording run log integrity event: %w", err))
+		}
 	}
 
 	a.setIntegrityBanner(report.Summary(), true)

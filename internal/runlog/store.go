@@ -29,7 +29,12 @@ type RunLogStore struct {
 	// Signing configuration
 	signer      *signing.Signer
 	signerEmail string
-	trust       TrustStore // Trust anchor for signature verification (nil if not configured)
+
+	// The trust anchor is deliberately NOT held here. Verification takes it as
+	// an explicit parameter (VerifyIntegrity, VerifyRecordStatus) so that the
+	// key a record is checked against is always visible at the call site and is
+	// always supplied by the layer that owns it. A store-held copy existed once,
+	// was set by the GUI, and had no observable effect on anything.
 
 	// lastCheckWasHealthy records whether the immediately preceding
 	// VerifyIntegrity call against this store found the chain intact. See
@@ -77,15 +82,6 @@ func (s *RunLogStore) SetSigner(signer *signing.Signer, email string) {
 	defer s.mu.Unlock()
 	s.signer = signer
 	s.signerEmail = email
-}
-
-// SetTrustStore configures the trust anchor used to verify record signatures. A
-// nil trust store (the default) makes every signed record report Unverifiable —
-// never Valid — until a trust anchor is configured.
-func (s *RunLogStore) SetTrustStore(trust TrustStore) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.trust = trust
 }
 
 // runlogDir returns the path to the run log directory.
@@ -775,12 +771,10 @@ func (s *RunLogStore) loadRunLocked(id string) (*RunRecord, error) {
 		return nil, fmt.Errorf("unmarshaling record: %w", err)
 	}
 
-	// Verify signature if present
-	if record.Signature != "" {
-		status := VerifyRecordStatus(&record, s.trust)
-		// Store verification status (not persisted, computed on load)
-		_ = status // Can be used by caller via VerifyRecordStatus
-	}
+	// Signature verification deliberately does NOT happen here. Verification
+	// needs a trust anchor, the store does not own one, and a status computed
+	// here would be thrown away anyway: callers ask for it explicitly via
+	// VerifyRecordStatus(record, trust).
 
 	return &record, nil
 }
@@ -939,9 +933,15 @@ func (s *RunLogStore) VerifyIntegrity(trust TrustStore) (ChainReport, error) {
 	// AppendIntegrityEvent later receives carries the state as of this exact
 	// call — reading s.lastCheckWasHealthy from inside AppendIntegrityEvent
 	// instead would race against any VerifyIntegrity call made in between.
+	//
+	// "Healthy" here means "no integrity break", NOT report.OK: a log signed by
+	// a key this installation does not recognise is permanently not-OK, and
+	// folding that into the healed/unhealed bookkeeping would mean a break that
+	// genuinely recurred after a heal could never be recognised as a new
+	// incident on a colleague's machine.
 	s.mu.Lock()
 	report.healedSincePriorCheck = s.lastCheckWasHealthy
-	s.lastCheckWasHealthy = report.OK
+	s.lastCheckWasHealthy = !report.HasIntegrityBreak()
 	s.mu.Unlock()
 
 	return report, nil
@@ -977,8 +977,30 @@ var ErrIntegrityEventRequiresSigner = errors.New("cannot append integrity event:
 // with" is not an audit fact, and dedup only ever looks at SEALED records, so
 // writing an unsigned one would also grow the log without bound. See
 // ErrIntegrityEventRequiresSigner.
+//
+// It appends ONLY for a genuine integrity break (ChainReport.HasIntegrityBreak)
+// — never for a report whose sole defect is that the signing key is unknown to
+// this installation. That report means the trust store is incomplete (a
+// colleague signed the log; the user rotated their key), not that anything
+// happened to the log, and sealing a permanent, immutable, signed record
+// asserting otherwise fabricates audit evidence. The user is still warned, by
+// the caller, in different words.
+//
+// KNOWN BEHAVIOUR — truncation is recorded twice, under two names. Deleting the
+// TIP record produces a tip-truncated report. The event this method then seals
+// takes the next sequence from the signed head, so it chains onto the DELETED
+// record's hash and sits one sequence above the highest surviving record — which
+// converts the truncation into a gap. The next verification therefore sees
+// "gap:N", not "tip-truncated", does not recognise it as the same break, and
+// seals a second event. It then stabilises: every subsequent check reports the
+// same gap and dedups. The cost is bounded (exactly two events, never more) and
+// both events are TRUE — the tip was truncated, and there is now a hole where it
+// was. Healing it properly would require sealing the event at the sequence of
+// the record that was deleted, which would FILL the hole and destroy the very
+// evidence of the deletion. The redundant event is the lesser evil and is left
+// deliberately.
 func (s *RunLogStore) AppendIntegrityEvent(report ChainReport) error {
-	if report.OK {
+	if !report.HasIntegrityBreak() {
 		return nil
 	}
 

@@ -29,16 +29,40 @@ type ChainDuplicate struct {
 // reported as valid — its neighbour vanishing does not make it a forgery. So this
 // report carries BOTH: the set-level findings, and the per-record status.
 type ChainReport struct {
-	OK            bool
-	Sealed        int
-	Gaps          []ChainGap
-	Duplicates    []ChainDuplicate
-	Unreadable    []string // record IDs whose files exist but could not be loaded
-	TipMismatch   bool
-	ExpectedTip   int
-	ActualTip     int
+	OK          bool
+	Sealed      int
+	Gaps        []ChainGap
+	Duplicates  []ChainDuplicate
+	Unreadable  []string // record IDs whose files exist but could not be loaded
+	TipMismatch bool
+	ExpectedTip int
+	ActualTip   int
+
+	// PrevHashBreaks holds the sequences of records whose PrevHash does not
+	// match the hash of their immediate predecessor — the classic hash-chain
+	// break, produced by modifying any record that HAS a successor.
+	PrevHashBreaks []int
+
+	// TipHashMismatch is true when the highest sealed record does not hash to
+	// the TipHash in the signed head. The prev-hash links protect every record
+	// that has a successor; the newest one has none, so only the head commits
+	// to it. Without this check, editing the newest sealed record was
+	// undetectable at the set level and the log still reported itself intact.
+	TipHashMismatch bool
+
+	// Unhashable holds the IDs of records that could not be hashed at all
+	// (a marshaling failure). That is neither "matches" nor "does not match" —
+	// it is a distinct, unclassifiable failure, and is kept apart from
+	// TipHashMismatch and the prev-hash breaks rather than being reclassified
+	// as one of them.
+	Unhashable []string
+
+	// HeadUntrusted means the signed head's key is not in the trust store, or
+	// its signature does not verify under that key. NOTE: this is a
+	// TRUST-SCOPE fact, not an integrity fact — see HasIntegrityBreak.
 	HeadUntrusted bool
-	Records       map[string]VerificationResult
+
+	Records map[string]VerificationResult
 
 	// healedSincePriorCheck is stamped by RunLogStore.VerifyIntegrity: true
 	// when the immediately PRECEDING VerifyIntegrity call against that same
@@ -52,11 +76,50 @@ type ChainReport struct {
 	healedSincePriorCheck bool
 }
 
+// HasIntegrityBreak reports whether the log itself is damaged: a record is
+// missing, duplicated, corrupt, modified, or the chain no longer links up.
+//
+// It is deliberately FALSE when the only defect is that Janus does not
+// recognise the signing key (HeadUntrusted, or per-record Untrusted). "I do not
+// recognise this key" is evidence of an incomplete trust store — a colleague ran
+// the model, or the user rotated their signing key, which the Security
+// Considerations actively tell them to do after a compromise. It is not evidence
+// that anything happened to the log.
+//
+// This distinction is what stops Janus from sealing a permanent, immutable,
+// signed record into a regulated audit trail asserting the log was found broken
+// when nothing whatsoever is wrong with it. Fabricated audit evidence is worse
+// than no evidence. See RunLogStore.AppendIntegrityEvent, which appends only
+// when this is true, and the GUI banner, which warns on either but says two
+// different things.
+func (r ChainReport) HasIntegrityBreak() bool {
+	return len(r.Gaps) > 0 ||
+		len(r.Duplicates) > 0 ||
+		len(r.Unreadable) > 0 ||
+		len(r.PrevHashBreaks) > 0 ||
+		len(r.Unhashable) > 0 ||
+		r.TipMismatch ||
+		r.TipHashMismatch
+}
+
 // Summary renders the report the way a human needs to read it: what is missing,
 // where, and what is still fine.
 func (r ChainReport) Summary() string {
 	if r.OK {
 		return fmt.Sprintf("Run log intact — %d sealed records, chain and tip verified.", r.Sealed)
+	}
+
+	// Not OK, but nothing is actually broken: the log simply cannot be fully
+	// verified with the keys this installation knows about. Saying "RUN LOG
+	// INCOMPLETE" here would accuse a colleague's perfectly good log — or the
+	// user's own log, after a key rotation — of being damaged.
+	if !r.HasIntegrityBreak() {
+		return fmt.Sprintf(
+			"RUN LOG NOT FULLY VERIFIED — the key that signed this run log is not one this installation recognises.\n"+
+				"  This is NOT evidence of tampering: it is what a run log signed by a colleague, or by a signing key you have since rotated, looks like.\n"+
+				"  The chain structure itself is consistent — %d sealed record(s), no gaps, no duplicates.\n"+
+				"  To verify it, the signer's public key must be present in this installation's trust store.",
+			r.Sealed)
 	}
 
 	var b strings.Builder
@@ -85,6 +148,21 @@ func (r ChainReport) Summary() string {
 			len(r.Unreadable), strings.Join(r.Unreadable, ", "))
 	}
 
+	for _, sequence := range r.PrevHashBreaks {
+		fmt.Fprintf(&b, "\n  Chain broken at sequence %d — its prev_hash does not match record %d, which was modified after it was sealed.",
+			sequence, sequence-1)
+	}
+
+	if r.TipHashMismatch {
+		fmt.Fprintf(&b, "\n  The newest sealed record (sequence %d) does not match the tip hash in the signed head — it was modified after it was sealed.",
+			r.ActualTip)
+	}
+
+	if len(r.Unhashable) > 0 {
+		fmt.Fprintf(&b, "\n  %d record(s) could not be hashed, so their chain links could not be checked at all: %s",
+			len(r.Unhashable), strings.Join(r.Unhashable, ", "))
+	}
+
 	if r.TipMismatch {
 		switch {
 		case r.ActualTip < r.ExpectedTip:
@@ -109,9 +187,10 @@ func (r ChainReport) Summary() string {
 }
 
 // breakSignature reduces a report to the identity of the tamper it describes —
-// which sequences are missing or duplicated, which record files are unreadable,
-// whether the head is untrusted, and the direction (not magnitude) of any tip
-// mismatch. It deliberately omits Sealed, ActualTip and ExpectedTip: those
+// which sequences are missing, duplicated or unlinked, which record files are
+// unreadable or unhashable, whether the tip record no longer matches the head,
+// and the direction (not magnitude) of any tip mismatch. It deliberately omits
+// Sealed, ActualTip and ExpectedTip: those
 // counters advance every time a new record is sealed, including an
 // integrity-event record recording a PRIOR break, so comparing the full
 // rendered Summary() would treat the very act of recording a break as a new,
@@ -133,8 +212,16 @@ func (r ChainReport) breakSignature() string {
 		fmt.Fprintf(&b, "unreadable:%s;", id)
 	}
 
-	if r.HeadUntrusted {
-		b.WriteString("head-untrusted;")
+	for _, sequence := range r.PrevHashBreaks {
+		fmt.Fprintf(&b, "prev-hash:%d;", sequence)
+	}
+
+	for _, id := range r.Unhashable {
+		fmt.Fprintf(&b, "unhashable:%s;", id)
+	}
+
+	if r.TipHashMismatch {
+		b.WriteString("tip-hash-mismatch;")
 	}
 
 	if r.TipMismatch {
@@ -231,6 +318,7 @@ func VerifyChain(records []*RunRecord, head *Head, trust TrustStore) ChainReport
 		previousHash, err := RecordHash(previous)
 		if err != nil {
 			report.OK = false
+			report.Unhashable = append(report.Unhashable, previous.ID)
 
 			result := report.Records[current.ID]
 			result.Status = VerificationChainBroken
@@ -243,6 +331,7 @@ func VerifyChain(records []*RunRecord, head *Head, trust TrustStore) ChainReport
 
 		if current.PrevHash != previousHash {
 			report.OK = false
+			report.PrevHashBreaks = append(report.PrevHashBreaks, current.Sequence)
 
 			result := report.Records[current.ID]
 			result.Status = VerificationChainBroken
@@ -289,6 +378,49 @@ func VerifyChain(records []*RunRecord, head *Head, trust TrustStore) ChainReport
 	if head.Sequence != report.ActualTip {
 		report.TipMismatch = true
 		report.OK = false
+
+		return report
+	}
+
+	// The tip record. Every OTHER record is committed to by its successor's
+	// PrevHash — but the newest one has no successor, so the prev-hash loop
+	// above protects it with nothing at all. The signed head is the only thing
+	// that commits to it, and until this check existed head.TipHash was
+	// computed, signed, stored... and never read back. Editing the newest
+	// sealed record therefore left the log reporting itself intact.
+	if len(records) == 0 {
+		return report
+	}
+
+	tip := records[len(records)-1]
+
+	tipHash, err := RecordHash(tip)
+	if err != nil {
+		// A record that cannot be hashed is not a record that "does not
+		// match" — that would reclassify a marshaling failure as tampering.
+		// Report it as what it is: a link that could not be checked.
+		report.OK = false
+		report.Unhashable = append(report.Unhashable, tip.ID)
+
+		result := report.Records[tip.ID]
+		result.Status = VerificationChainBroken
+		result.Message = fmt.Sprintf("Cannot verify the chain tip — record %s (sequence %d) could not be hashed: %v",
+			tip.ID, tip.Sequence, err)
+		report.Records[tip.ID] = result
+
+		return report
+	}
+
+	if tipHash != head.TipHash {
+		report.OK = false
+		report.TipHashMismatch = true
+
+		result := report.Records[tip.ID]
+		result.Status = VerificationChainBroken
+		result.Message = fmt.Sprintf(
+			"The newest sealed record (sequence %d, %s) does not hash to the tip declared by the signed head — it was modified after it was sealed",
+			tip.Sequence, tip.ID)
+		report.Records[tip.ID] = result
 	}
 
 	return report

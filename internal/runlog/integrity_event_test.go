@@ -150,6 +150,83 @@ func TestAppendIntegrityEventRequiresASigner(t *testing.T) {
 	}
 }
 
+// CRITICAL 2: Bob opens a model directory Alice ran in, or a single user opens
+// their own log after rotating their signing key (which the Security
+// Considerations tell them to do after a compromise). The head is signed by a
+// key this installation does not hold. NOTHING is wrong with the log.
+//
+// Janus must not seal a permanent, immutable, signed record into a regulated
+// audit trail asserting the log was found broken. That is not detection; it is
+// fabricated audit evidence.
+func TestUntrustedHeadDoesNotWriteAnIntegrityEvent(t *testing.T) {
+	store, _ := newSignedStore(t)
+
+	_, otherPublicKey := generateTestKeyPair(t)
+	otherTrust, err := NewLicenseTrust(encodePublicKeyPEM(t, otherPublicKey), "bob@example.com")
+	require.NoError(t, err)
+
+	sealN(t, store, 3)
+
+	filesBefore, err := os.ReadDir(store.runlogDir())
+	require.NoError(t, err)
+
+	// Repeated opens, as a colleague reopening the model would do.
+	for i := 0; i < 3; i++ {
+		report, err := store.VerifyIntegrity(otherTrust)
+		require.NoError(t, err)
+
+		require.False(t, report.OK, "call %d: an unverifiable head is genuinely not fully verified", i)
+		require.False(t, report.HasIntegrityBreak(), "call %d: an unknown key is not a broken log", i)
+
+		require.NoError(t, store.AppendIntegrityEvent(report))
+	}
+
+	filesAfter, err := os.ReadDir(store.runlogDir())
+	require.NoError(t, err)
+	require.Equal(t, len(filesBefore), len(filesAfter),
+		"no record may be written into the audit trail because Janus does not recognise a signing key")
+
+	sealed, _, err := store.SealedRecords()
+	require.NoError(t, err)
+	require.Len(t, sealed, 3)
+
+	for _, record := range sealed {
+		require.NotEqual(t, KindIntegrityEvent, record.Kind,
+			"an untrusted-key-only report must append NOTHING to the chain")
+	}
+}
+
+// Regression guard for the fix above: narrowing the append condition must not
+// have narrowed it past the case it exists for. A real break still gets exactly
+// one event.
+func TestGenuineBreakStillWritesAnIntegrityEvent(t *testing.T) {
+	store, publicKeyPEM := newSignedStore(t)
+	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	require.NoError(t, err)
+
+	records := sealN(t, store, 3)
+	require.NoError(t, os.Remove(filepath.Join(store.runlogDir(), records[1].ID+".json")))
+
+	report, err := store.VerifyIntegrity(trust)
+	require.NoError(t, err)
+	require.True(t, report.HasIntegrityBreak(), "a missing record IS a genuine break")
+
+	require.NoError(t, store.AppendIntegrityEvent(report))
+
+	sealed, _, err := store.SealedRecords()
+	require.NoError(t, err)
+
+	eventCount := 0
+
+	for _, record := range sealed {
+		if record.Kind == KindIntegrityEvent {
+			eventCount++
+		}
+	}
+
+	require.Equal(t, 1, eventCount, "a genuine break must still be recorded into the chain, exactly once")
+}
+
 // Finding 3: dedup must not silently swallow a break that recurs AFTER the log
 // was healed. Healing (restoring the exact missing bytes) never itself seals a
 // new record, so nothing else marks the recurrence as a fresh incident —

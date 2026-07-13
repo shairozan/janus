@@ -4,6 +4,7 @@
 package runlog
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -92,6 +93,90 @@ func TestTailTruncationIsDetectedByTheHead(t *testing.T) {
 	require.True(t, report.TipMismatch, "the surviving chain is self-consistent; only the head reveals the loss")
 	require.Equal(t, 5, report.ExpectedTip)
 	require.Equal(t, 3, report.ActualTip)
+}
+
+// CRITICAL 1: the tip record is the ONE record no prev-hash link commits to —
+// it has no successor. head.TipHash is the only thing that does, and it was
+// computed, signed, stored, and never read back. Editing the newest sealed
+// record left the log cheerfully reporting "chain and tip verified".
+func TestTipRecordModificationIsDetected(t *testing.T) {
+	store, publicKeyPEM := newSignedStore(t)
+	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	require.NoError(t, err)
+
+	records := sealN(t, store, 3)
+
+	tip := records[2]
+	require.Equal(t, 3, tip.Sequence, "the record with no successor")
+
+	// Edit a SIGNED field of the newest sealed record on disk.
+	tipPath := filepath.Join(store.runlogDir(), tip.ID+".json")
+
+	data, err := os.ReadFile(tipPath)
+	require.NoError(t, err)
+
+	var onDisk map[string]any
+	require.NoError(t, json.Unmarshal(data, &onDisk))
+
+	onDisk["command"] = "nmfe75 evil.mod evil.lst"
+	onDisk["exit_code"] = 0
+
+	edited, err := json.MarshalIndent(onDisk, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(tipPath, edited, 0600))
+
+	// A FRESH store, as a fresh process opening this directory would be — no
+	// in-memory cache to paper over the edit.
+	fresh := NewRunLogStore(store.baseDir, "model.mod")
+	require.NoError(t, fresh.Load())
+
+	report, err := fresh.VerifyIntegrity(trust)
+	require.NoError(t, err)
+
+	require.False(t, report.OK, "modifying the newest sealed record must NOT verify as an intact chain")
+	require.True(t, report.TipHashMismatch, "only head.TipHash commits to the tip record")
+	require.True(t, report.HasIntegrityBreak(), "a modified record is a genuine integrity break")
+
+	require.Equal(t, VerificationChainBroken, report.Records[tip.ID].Status,
+		"the tampered tip record must be flagged by ID")
+
+	summary := report.Summary()
+	require.NotContains(t, summary, "chain and tip verified",
+		"the summary must stop claiming the tip is verified when it is not")
+	require.Contains(t, summary, "modified after it was sealed")
+
+	// The untouched records are still intact and must still say so.
+	require.Equal(t, VerificationValid, report.Records[records[0].ID].Status)
+	require.Equal(t, VerificationValid, report.Records[records[1].ID].Status)
+}
+
+// CRITICAL 2: Bob opens a model directory Alice ran in. His trust store holds
+// only his own key. NOTHING is wrong with the log — Janus must not say there is,
+// and (see integrity_event_test.go) must not write history saying there is.
+func TestUntrustedHeadIsNotAnIntegrityBreak(t *testing.T) {
+	store, _ := newSignedStore(t)
+
+	// A trust store holding a DIFFERENT key: Bob's, or Alice's own key after a
+	// rotation — the two are indistinguishable, and neither is tampering.
+	_, otherPublicKey := generateTestKeyPair(t)
+	otherTrust, err := NewLicenseTrust(encodePublicKeyPEM(t, otherPublicKey), "bob@example.com")
+	require.NoError(t, err)
+
+	sealN(t, store, 3)
+
+	report, err := store.VerifyIntegrity(otherTrust)
+	require.NoError(t, err)
+
+	require.False(t, report.OK, "an unverifiable head is genuinely not fully verified")
+	require.True(t, report.HeadUntrusted)
+	require.False(t, report.HasIntegrityBreak(),
+		"an unrecognised signing key is evidence of an incomplete trust store, NOT of tampering")
+
+	summary := report.Summary()
+	require.Contains(t, summary, "not one this installation recognises")
+	require.Contains(t, summary, "NOT evidence of tampering")
+	require.NotContains(t, summary, "RUN LOG INCOMPLETE",
+		"a perfectly intact log signed by a colleague must not be described as incomplete")
 }
 
 func TestSummaryNamesTheMissingSequence(t *testing.T) {
