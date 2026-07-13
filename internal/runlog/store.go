@@ -29,7 +29,7 @@ type RunLogStore struct {
 	// Signing configuration
 	signer      *signing.Signer
 	signerEmail string
-	fallbackKey string // Fallback public key for verification
+	trust       TrustStore // Trust anchor for signature verification (nil if not configured)
 
 	mu sync.RWMutex // Protects index and cache
 }
@@ -73,11 +73,13 @@ func (s *RunLogStore) SetSigner(signer *signing.Signer, email string) {
 	s.signerEmail = email
 }
 
-// SetFallbackKey sets the fallback public key for signature verification.
-func (s *RunLogStore) SetFallbackKey(publicKeyPEM string) {
+// SetTrustStore configures the trust anchor used to verify record signatures. A
+// nil trust store (the default) makes every signed record report Unverifiable —
+// never Valid — until a trust anchor is configured.
+func (s *RunLogStore) SetTrustStore(trust TrustStore) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.fallbackKey = publicKeyPEM
+	s.trust = trust
 }
 
 // runlogDir returns the path to the run log directory.
@@ -769,7 +771,7 @@ func (s *RunLogStore) loadRunLocked(id string) (*RunRecord, error) {
 
 	// Verify signature if present
 	if record.Signature != "" {
-		status := VerifyRecordStatus(&record, s.fallbackKey)
+		status := VerifyRecordStatus(&record, s.trust)
 		// Store verification status (not persisted, computed on load)
 		_ = status // Can be used by caller via VerifyRecordStatus
 	}

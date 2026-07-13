@@ -221,27 +221,31 @@ func TestVerifyRecord(t *testing.T) {
 		assert.Contains(t, err.Error(), "signature verification failed")
 	})
 
-	t.Run("embedded_key_takes_precedence", func(t *testing.T) {
+	t.Run("verifies_against_given_key_not_embedded_key", func(t *testing.T) {
+		// VerifyRecord must never trust the key embedded in the record itself —
+		// that field is data the record supplies about itself, and treating it as
+		// authority is exactly how a forged record vouches for its own
+		// authenticity. It verifies against exactly the key the caller passes.
 		signer, publicKeyPEM := createTestSigner(t)
 		record := createTestRecord()
 
 		err := SignRecord(record, signer)
 		require.NoError(t, err)
 
-		// Record now has embedded public key
+		// Record has an embedded public key, but it must be irrelevant here.
 		assert.NotEmpty(t, record.SignerPublicKey)
 
-		// Passing a wrong key as fallback should still verify
-		// because the embedded key is used instead
 		_, wrongPublicKey := generateTestKeyPair(t)
 		wrongPublicKeyPEM := encodePublicKeyPEM(t, wrongPublicKey)
 
-		// Should verify successfully using embedded key
+		// A wrong key passed explicitly must fail, even though the embedded key
+		// (ignored here) would have verified.
 		err = VerifyRecord(record, wrongPublicKeyPEM)
-		assert.NoError(t, err)
+		require.Error(t, err)
 
-		// Verify the embedded key matches what we expect
-		assert.Equal(t, publicKeyPEM, record.SignerPublicKey)
+		// The correct key, passed explicitly, still verifies.
+		err = VerifyRecord(record, publicKeyPEM)
+		assert.NoError(t, err)
 	})
 }
 
@@ -277,13 +281,16 @@ func TestSignRecordWithInfo(t *testing.T) {
 
 func TestVerifyRecordStatus(t *testing.T) {
 	t.Run("valid_signature_returns_valid_status", func(t *testing.T) {
-		signer, _ := createTestSigner(t)
+		signer, publicKeyPEM := createTestSigner(t)
 		record := createTestRecord()
 
 		err := SignRecordWithInfo(record, signer, "user@example.com")
 		require.NoError(t, err)
 
-		result := VerifyRecordStatus(record, "")
+		trust, err := NewLicenseTrust(publicKeyPEM, "user@example.com")
+		require.NoError(t, err)
+
+		result := VerifyRecordStatus(record, trust)
 		assert.Equal(t, VerificationValid, result.Status)
 		assert.Contains(t, result.Message, "Signed by user@example.com")
 		assert.Equal(t, "user@example.com", result.Signer)
@@ -292,41 +299,59 @@ func TestVerifyRecordStatus(t *testing.T) {
 	t.Run("unsigned_record_returns_unsigned_status", func(t *testing.T) {
 		record := createTestRecord()
 
-		result := VerifyRecordStatus(record, "")
+		result := VerifyRecordStatus(record, nil)
 		assert.Equal(t, VerificationUnsigned, result.Status)
 		assert.Equal(t, "Unsigned", result.Message)
 	})
 
 	t.Run("tampered_record_returns_invalid_status", func(t *testing.T) {
+		signer, publicKeyPEM := createTestSigner(t)
+		record := createTestRecord()
+
+		err := SignRecordWithInfo(record, signer, "user@example.com")
+		require.NoError(t, err)
+
+		trust, err := NewLicenseTrust(publicKeyPEM, "user@example.com")
+		require.NoError(t, err)
+
+		// Tamper with the record
+		record.ExitCode = 999
+
+		result := VerifyRecordStatus(record, trust)
+		assert.Equal(t, VerificationInvalid, result.Status)
+		assert.Contains(t, result.Message, "invalid")
+	})
+
+	t.Run("nil_trust_store_returns_unverifiable_even_with_embedded_key", func(t *testing.T) {
+		// A nil trust store must never be treated as "trust the embedded key" —
+		// that would resurrect the self-referential fallback this feature closes.
+		signer, _ := createTestSigner(t)
+		record := createTestRecord()
+
+		err := SignRecord(record, signer)
+		require.NoError(t, err)
+		require.NotEmpty(t, record.SignerPublicKey)
+
+		result := VerifyRecordStatus(record, nil)
+		assert.Equal(t, VerificationUnverifiable, result.Status)
+		assert.Contains(t, result.Message, "no trust anchor configured")
+	})
+
+	t.Run("unauthorized_key_returns_untrusted_not_unverifiable", func(t *testing.T) {
 		signer, _ := createTestSigner(t)
 		record := createTestRecord()
 
 		err := SignRecordWithInfo(record, signer, "user@example.com")
 		require.NoError(t, err)
 
-		// Tamper with the record
-		record.ExitCode = 999
-
-		result := VerifyRecordStatus(record, "")
-		assert.Equal(t, VerificationInvalid, result.Status)
-		assert.Contains(t, result.Message, "invalid")
-	})
-
-	t.Run("legacy_record_without_key_returns_unverifiable", func(t *testing.T) {
-		signer, _ := createTestSigner(t)
-		record := createTestRecord()
-
-		err := SignRecord(record, signer)
+		// A trust store that authorizes a completely different key.
+		_, otherPublicKey := generateTestKeyPair(t)
+		trust, err := NewLicenseTrust(encodePublicKeyPEM(t, otherPublicKey), "someone-else@example.com")
 		require.NoError(t, err)
 
-		// Clear embedded key to simulate legacy record
-		record.SignerPublicKey = ""
-		record.SignerEmail = ""
-
-		// No fallback key provided
-		result := VerifyRecordStatus(record, "")
-		assert.Equal(t, VerificationUnverifiable, result.Status)
-		assert.Contains(t, result.Message, "cannot verify")
+		result := VerifyRecordStatus(record, trust)
+		assert.Equal(t, VerificationUntrusted, result.Status)
+		assert.Contains(t, result.Message, "UNAUTHORIZED")
 	})
 }
 

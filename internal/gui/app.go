@@ -143,6 +143,12 @@ type App struct {
 	// Run log signing (nil if signing not configured)
 	signer *signing.Signer
 
+	// trustStore is the run-log verification trust anchor, constructed at the
+	// highest layer (internal/appsetup) from the license's signing key and handed
+	// down here. A nil trustStore (signing not configured, or no license key)
+	// degrades verification to Unverifiable — never Valid.
+	trustStore runlog.TrustStore
+
 	// modelMu guards currentFilePath and runLogStore against concurrent access
 	// from MCP HTTP goroutines while the UI thread reassigns them in LoadModelFile.
 	modelMu sync.Mutex
@@ -198,6 +204,9 @@ func (a *App) SetConfiguration(cfg *config.Config) {
 
 	// Initialize run log signer if signing is configured
 	a.initSigner()
+
+	// Construct the verification trust anchor from the license's signing key.
+	a.initTrustStore()
 
 	// One-shot startup belt: clear any Hermes pods orphaned by a previously killed
 	// run. Called once at startup (both the wizard and normal paths land here;
@@ -267,6 +276,34 @@ func (a *App) initSigner() {
 
 	if signer != nil {
 		log.Printf("Run log signing enabled")
+	}
+}
+
+// initTrustStore constructs the run-log verification trust anchor from the
+// license claims. This must be constructed here (the highest layer that knows
+// about both config and license) and handed down — internal/runlog must never
+// construct its own trust anchor, and the record being verified must never
+// supply it either.
+//
+// This should be called after SetConfiguration and SetLicenseClaims.
+func (a *App) initTrustStore() {
+	trust, err := appsetup.BuildTrustStore(a.licenseClaims)
+	if err != nil {
+		log.Printf("ERROR: run log trust store setup failed: %v", err)
+
+		if a.window != nil {
+			dialog.ShowError(fmt.Errorf("CFR 21 Part 11 compliance error: %w", err), a.window)
+		}
+
+		a.trustStore = nil
+
+		return
+	}
+
+	a.trustStore = trust
+
+	if a.runLogStore != nil {
+		a.runLogStore.SetTrustStore(a.trustStore)
 	}
 }
 
@@ -1000,12 +1037,16 @@ func (a *App) buildRunDetailsTab() fyne.CanvasObject {
 					label.Importance = widget.LowImportance
 				}
 			case 5: // Verified (signature verification status)
-				result := runlog.VerifyRecordStatus(&run, "")
+				result := runlog.VerifyRecordStatus(&run, a.trustStore)
 				switch result.Status {
 				case runlog.VerificationValid:
 					label.SetText("✓")
 					label.Importance = widget.SuccessImportance
-				case runlog.VerificationInvalid:
+				case runlog.VerificationInvalid, runlog.VerificationUntrusted, runlog.VerificationChainBroken:
+					// Untrusted is cryptographically sound but signed by an
+					// unauthorized key — it must render exactly like Invalid,
+					// never green, or a forged record would be indistinguishable
+					// from a genuine one at a glance.
 					label.SetText("✗")
 					label.Importance = widget.DangerImportance
 				case runlog.VerificationUnsigned, runlog.VerificationUnverifiable:
@@ -3739,6 +3780,9 @@ func (a *App) setupModelRunHistory(modelFilePath string) {
 	if a.signer != nil && a.licenseClaims != nil {
 		a.runLogStore.SetSigner(a.signer, a.licenseClaims.UserEmail)
 	}
+
+	// Configure the verification trust anchor (nil degrades to Unverifiable).
+	a.runLogStore.SetTrustStore(a.trustStore)
 
 	// Load existing run logs (creates directory structure if needed)
 	if err := a.runLogStore.Load(); err != nil {

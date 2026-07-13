@@ -79,7 +79,10 @@ func TestUpdateRunPreservesSignatureValidity(t *testing.T) {
 			"a failure here means Janus signs a record, mutates it, saves it without re-signing, "+
 			"and then reports its own output as tampered")
 
-	status := VerifyRecordStatus(reloaded, publicKeyPEM)
+	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	require.NoError(t, err)
+
+	status := VerifyRecordStatus(reloaded, trust)
 	require.Equal(t, VerificationValid, status.Status,
 		"a normally-completed run must not render as tampered, got %s", status.Status)
 }

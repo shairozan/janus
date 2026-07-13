@@ -13,6 +13,7 @@ import (
 
 	"github.com/pharmalytica/janus/internal/config"
 	"github.com/pharmalytica/janus/internal/license/validator"
+	"github.com/pharmalytica/janus/internal/runlog"
 	"github.com/pharmalytica/janus/internal/signing"
 )
 
@@ -83,4 +84,29 @@ func BuildSigner(cfg *config.Config, claims *validator.Claims) (*signing.Signer,
 	}
 
 	return signer, nil
+}
+
+// BuildTrustStore constructs the run-log verification trust anchor.
+//
+// This is the seam that will let Janus go open source: the commercial build
+// anchors trust in claims.SigningPublicKey (the license's signing key, already
+// validated against the configured private key by BuildSigner/
+// ValidateSigningKeyPair and, until now, discarded afterward); an open-source
+// build would anchor it in a user-managed keyring via runlog.NewKeyringTrust
+// instead. Either way the verification path in internal/runlog is identical.
+//
+// It returns (nil, nil) when the license carries no signing key — signing is
+// optional, and a nil TrustStore makes every signed record report Unverifiable,
+// never Valid, which is the correct degradation.
+func BuildTrustStore(claims *validator.Claims) (runlog.TrustStore, error) {
+	if claims == nil || claims.SigningPublicKey == "" {
+		return nil, nil
+	}
+
+	trust, err := runlog.NewLicenseTrust(claims.SigningPublicKey, claims.UserEmail)
+	if err != nil {
+		return nil, fmt.Errorf("building license trust store: %w", err)
+	}
+
+	return trust, nil
 }

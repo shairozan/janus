@@ -78,22 +78,19 @@ func clearSignatureFields(record *RunRecord) {
 	record.SignedAt = nil
 }
 
-// VerifyRecord verifies the cryptographic signature of a run record.
-// Returns nil if the signature is valid, or an error if verification fails.
+// VerifyRecord verifies the cryptographic signature of a run record against the
+// exact key it is given.
 //
-// If the record has an embedded SignerPublicKey, that key is used for verification.
-// Otherwise, the provided fallbackPublicKeyPEM is used.
-// Pass empty string for fallbackPublicKeyPEM if you only want to verify using embedded keys.
-func VerifyRecord(record *RunRecord, fallbackPublicKeyPEM string) error {
+// It does NOT fall back to record.SignerPublicKey — a record's own embedded key
+// is data the record supplied about itself, and treating it as authority lets a
+// forged record vouch for its own authenticity. Callers that need to resolve
+// "which key" first (e.g. via a TrustStore) do so before calling this function;
+// see VerifyRecordStatus.
+func VerifyRecord(record *RunRecord, publicKeyPEM string) error {
 	if record.Signature == "" {
 		return fmt.Errorf("record has no signature")
 	}
 
-	// Determine which public key to use
-	publicKeyPEM := record.SignerPublicKey
-	if publicKeyPEM == "" {
-		publicKeyPEM = fallbackPublicKeyPEM
-	}
 	if publicKeyPEM == "" {
 		return fmt.Errorf("no public key available for verification")
 	}
@@ -135,13 +132,13 @@ type VerificationResult struct {
 	Signer  string // Email of the signer (if available)
 }
 
-// VerifyRecordStatus verifies a run record's signature and returns detailed status.
-// This is the primary function for UI verification display.
+// VerifyRecordStatus verifies a run record and returns detailed status for the UI.
 //
-// The fallbackPublicKeyPEM is used for legacy records that don't have an embedded public key.
-// Pass empty string if you don't have a fallback key.
-func VerifyRecordStatus(record *RunRecord, fallbackPublicKeyPEM string) VerificationResult {
-	// Check if record is unsigned
+// It asks the TrustStore whether the signing key is authorized BEFORE it asks
+// whether the maths checks out, because a signature from a key nobody authorized
+// proves nothing — it is exactly what a forgery looks like. The record's own
+// SignerPublicKey is never treated as authority for itself.
+func VerifyRecordStatus(record *RunRecord, trust TrustStore) VerificationResult {
 	if record.Signature == "" {
 		return VerificationResult{
 			Status:  VerificationUnsigned,
@@ -149,52 +146,38 @@ func VerifyRecordStatus(record *RunRecord, fallbackPublicKeyPEM string) Verifica
 		}
 	}
 
-	// Determine signer identity
 	signer := record.SignerEmail
 	if signer == "" {
 		signer = "Unknown"
 	}
 
-	// Determine which public key to use
-	publicKeyPEM := record.SignerPublicKey
-	usingEmbeddedKey := publicKeyPEM != ""
-
-	if publicKeyPEM == "" {
-		publicKeyPEM = fallbackPublicKeyPEM
-	}
-
-	// If no public key available, we can't verify
-	if publicKeyPEM == "" {
-		msg := fmt.Sprintf("Signed by %s (cannot verify - no public key)", signer)
-
+	if trust == nil {
 		return VerificationResult{
 			Status:  VerificationUnverifiable,
-			Message: msg,
+			Message: "Signed (cannot verify — no trust anchor configured)",
 			Signer:  signer,
 		}
 	}
 
-	// Attempt verification
-	err := VerifyRecord(record, publicKeyPEM)
-	if err != nil {
-		// Verification failed
-		if usingEmbeddedKey {
-			// Used embedded key - this means the record was tampered with
-			return VerificationResult{
-				Status:  VerificationInvalid,
-				Message: "Signature invalid - record may have been modified",
-				Signer:  signer,
-			}
-		}
-		// Used fallback key - might be signed by someone else
+	identity, ok := trust.Describe(record.SignerFingerprint)
+	if !ok {
 		return VerificationResult{
-			Status:  VerificationUnverifiable,
-			Message: "Signed (cannot verify - different signer key)",
+			Status:  VerificationUntrusted,
+			Message: fmt.Sprintf("Signed by an UNAUTHORIZED key (%s) — not trusted", signer),
 			Signer:  signer,
 		}
 	}
 
-	// Verification succeeded
+	// Verify against the key the TRUST STORE holds, never the one the record
+	// carries. Otherwise the record is still vouching for itself.
+	if err := VerifyRecord(record, identity.PublicKeyPEM); err != nil {
+		return VerificationResult{
+			Status:  VerificationInvalid,
+			Message: "Signature invalid — record may have been modified",
+			Signer:  signer,
+		}
+	}
+
 	return VerificationResult{
 		Status:  VerificationValid,
 		Message: fmt.Sprintf("Signed by %s", signer),

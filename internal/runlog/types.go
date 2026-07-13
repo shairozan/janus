@@ -18,6 +18,13 @@ const (
 	VerificationInvalid
 	// VerificationUnverifiable indicates we cannot verify (no public key available).
 	VerificationUnverifiable
+	// VerificationUntrusted indicates the signature is cryptographically sound but
+	// the signing key is not authorized. This is neither valid nor invalid, and it
+	// must NEVER render as green — it is how a forged record announces itself.
+	VerificationUntrusted
+	// VerificationChainBroken indicates this record's PrevHash points at a record
+	// that is not present, or its sequence leaves a gap.
+	VerificationChainBroken
 )
 
 // String returns a human-readable description of the verification status.
@@ -31,6 +38,10 @@ func (v VerificationStatus) String() string {
 		return "Invalid"
 	case VerificationUnverifiable:
 		return "Unverifiable"
+	case VerificationUntrusted:
+		return "Untrusted"
+	case VerificationChainBroken:
+		return "Chain broken"
 	default:
 		return "Unknown"
 	}
