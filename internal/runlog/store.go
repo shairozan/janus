@@ -463,6 +463,24 @@ func (s *RunLogStore) sealLocked(record *RunRecord) error {
 		return fmt.Errorf("signing record: %w", err)
 	}
 
+	// Capture whatever is on disk for this ID right now — an in-flight DRAFT in
+	// the common case, nothing at all for a record that arrives already
+	// terminal — BEFORE writeRunFileLocked overwrites it with the sealed
+	// version. If WriteHead fails below, this is what lets us restore the file
+	// to exactly what it was instead of destroying it.
+	filename := filepath.Join(s.runlogDir(), record.ID+".json")
+
+	priorBytes, err := os.ReadFile(filename)
+
+	priorExisted := true
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("reading existing record %s before seal: %w", record.ID, err)
+		}
+
+		priorExisted = false
+	}
+
 	if err := s.writeRunFileLocked(record); err != nil {
 		return err
 	}
@@ -482,20 +500,33 @@ func (s *RunLogStore) sealLocked(record *RunRecord) error {
 		// sequence, but the head checkpoint still points at the previous one.
 		// If we return here without repair, the next seal will read the stale
 		// head and hand this same sequence number to a DIFFERENT record,
-		// orphaning this one outside the chain forever. Roll the record file
-		// back out so on-disk state stays consistent with the head.
-		filename := filepath.Join(s.runlogDir(), record.ID+".json")
+		// orphaning this one outside the chain forever.
+		//
+		// A prior version existing means the standard production path just
+		// destroyed a legitimate, already-persisted DRAFT (AddRun records
+		// "running", UpdateRun later seals to "completed") — that draft must
+		// be restored exactly as it was, not deleted. Only when nothing
+		// existed before this seal attempt (the AddRun-arrives-already-
+		// terminal case) is removing the file the correct rollback.
+		var restoreErr error
+		if priorExisted {
+			restoreErr = writeFileAtomic(filename, priorBytes)
+		} else {
+			restoreErr = os.Remove(filename)
+		}
 
-		if removeErr := os.Remove(filename); removeErr != nil {
+		if restoreErr != nil {
 			return fmt.Errorf(
-				"writing chain head: %w; additionally, rolling back sealed record %s failed: %v"+
-					" — the run log chain may now be inconsistent and requires manual verification",
-				err, record.ID, removeErr,
+				"writing chain head: %w; additionally, restoring record %s to its pre-seal state"+
+					" failed: %v — the run log chain may now be inconsistent and requires manual"+
+					" verification",
+				err, record.ID, restoreErr,
 			)
 		}
 
-		// Rollback succeeded: the sealed file is gone, so undo the in-memory
-		// mutations too, leaving the caller's record exactly as it was found.
+		// Restore succeeded: the file on disk matches what it was before this
+		// seal attempt, so undo the in-memory mutations too, leaving the
+		// caller's record exactly as it was found.
 		delete(s.cache, record.ID)
 		record.Sealed = false
 		record.Sequence = 0
@@ -547,28 +578,37 @@ func (s *RunLogStore) writeRunFileLocked(record *RunRecord) error {
 	}
 
 	filename := filepath.Join(s.runlogDir(), record.ID+".json")
-	tmpFile := filename + ".tmp"
 
 	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshaling record: %w", err)
 	}
 
-	// Write to temp file first
+	if err := writeFileAtomic(filename, data); err != nil {
+		return err
+	}
+
+	// Cache the record
+	s.cache[record.ID] = record
+
+	return nil
+}
+
+// writeFileAtomic writes data to path via a temp file + rename, so a
+// concurrent reader (possibly in another process) never observes a torn file.
+func writeFileAtomic(path string, data []byte) error {
+	tmpFile := path + ".tmp"
+
 	if err := os.WriteFile(tmpFile, data, 0600); err != nil {
 		return fmt.Errorf("writing temp file: %w", err)
 	}
 
-	// Atomic rename
-	if err := os.Rename(tmpFile, filename); err != nil {
+	if err := os.Rename(tmpFile, path); err != nil {
 		// Clean up temp file on failure
 		os.Remove(tmpFile)
 
 		return fmt.Errorf("renaming to final path: %w", err)
 	}
-
-	// Cache the record
-	s.cache[record.ID] = record
 
 	return nil
 }

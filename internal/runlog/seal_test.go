@@ -222,6 +222,64 @@ func TestSealRollsBackRecordWhenHeadWriteFails(t *testing.T) {
 	}
 }
 
+// TestSealRestoresExistingDraftWhenHeadWriteFails covers the production path
+// TestSealRollsBackRecordWhenHeadWriteFails does not: a record that was
+// already persisted as an unsigned DRAFT by AddRun (the "running" -> later
+// "completed" lifecycle, not a record that arrives already terminal). Before
+// this test's fix, sealLocked's rollback unconditionally os.Remove'd the
+// record file on a WriteHead failure — correct only when nothing existed
+// before the seal attempt. On this path it instead destroyed the
+// already-valid, already-persisted draft while index.json still claimed the
+// run existed: an audit record silently gone on a transient I/O failure.
+//
+// The directory trap is placed at headPath()+".tmp", not headPath() itself.
+// Placing it at headPath() would make ReadHead (called by nextChainLocked at
+// the top of sealLocked, before the record file is ever touched) fail first,
+// so the seal would abort before reaching writeRunFileLocked and this test
+// would pass trivially against both the broken and the fixed code. Matching
+// TestSealRollsBackRecordWhenHeadWriteFails's proven approach, headPath()+
+// ".tmp" lets ReadHead succeed (genesis, no head file yet) so the draft is
+// actually overwritten by the sealed version, and only then does WriteHead's
+// own temp-file write fail.
+func TestSealRestoresExistingDraftWhenHeadWriteFails(t *testing.T) {
+	store, _ := newSignedStore(t)
+
+	// AddRun persists a "running" record as an unsigned draft — this is the
+	// file that must survive.
+	record := &RunRecord{ModelFile: "model.mod", Status: "running"}
+	require.NoError(t, store.AddRun(record))
+	require.False(t, record.Sealed)
+
+	recordPath := filepath.Join(store.runlogDir(), record.ID+".json")
+
+	draftBefore, err := os.ReadFile(recordPath)
+	require.NoError(t, err)
+
+	// Force WriteHead's own temp-file write to fail deterministically.
+	require.NoError(t, os.MkdirAll(store.headPath()+".tmp", 0755))
+
+	record.Status = "completed"
+	err = store.UpdateRun(record)
+	require.Error(t, err, "a failed head write must surface as an error, never be silently swallowed")
+
+	// Read the ON-DISK state directly through a second store instance, not
+	// store.GetRun: loadRunLocked can serve from s.cache, which would mask
+	// the very bug this test exists to catch (deletion of the file on disk).
+	secondStore := NewRunLogStore(store.baseDir, "model.mod")
+	require.NoError(t, secondStore.Load())
+
+	reloaded, err := secondStore.GetRun(record.ID)
+	require.NoError(t, err, "the draft must still be readable — the audit record must not be destroyed")
+
+	require.Equal(t, "running", reloaded.Status, "the restored file must be the pre-seal draft")
+	require.False(t, reloaded.Sealed)
+	require.Empty(t, reloaded.Signature)
+
+	draftAfter, err := os.ReadFile(recordPath)
+	require.NoError(t, err)
+	require.Equal(t, draftBefore, draftAfter, "the restored bytes must exactly match the pre-seal draft")
+}
+
 func TestUnsignedStoreStillWorks(t *testing.T) {
 	// No signer configured: records are written, never sealed, never signed.
 	store := NewRunLogStore(t.TempDir(), "model.mod")
