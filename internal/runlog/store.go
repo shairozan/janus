@@ -849,6 +849,60 @@ func (s *RunLogStore) GetAllRuns() []RunRecord {
 	return runs
 }
 
+// SealedRecords returns every sealed record, sorted ascending by chain sequence.
+// Drafts are excluded: they hold no chain position and are not audit facts.
+func (s *RunLogStore) SealedRecords() ([]*RunRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.index == nil {
+		return nil, nil
+	}
+
+	sealed := make([]*RunRecord, 0, len(s.index.Entries))
+
+	for _, entry := range s.index.Entries {
+		// loadRunFromDiskLocked, not loadRunLocked: a deleted record's file is
+		// exactly the fact this method must surface, and loadRunLocked would
+		// happily paper over the deletion with this process's own stale
+		// s.cache entry (AddRun/Seal populate it on write and nothing ever
+		// invalidates it). Only the file on disk is authoritative here.
+		record, err := s.loadRunFromDiskLocked(entry.ID)
+		if err != nil {
+			// A missing file is exactly the thing we are here to detect. Do not
+			// swallow it — the chain check will surface it as a gap.
+			continue
+		}
+
+		if record.Sealed {
+			sealed = append(sealed, record)
+		}
+	}
+
+	sort.Slice(sealed, func(i, j int) bool {
+		return sealed[i].Sequence < sealed[j].Sequence
+	})
+
+	return sealed, nil
+}
+
+// VerifyIntegrity verifies the run log as a set — the check that did not exist
+// before: every prior verification path examined one record at a time and so could
+// not, even in principle, notice one that had been removed.
+func (s *RunLogStore) VerifyIntegrity(trust TrustStore) (ChainReport, error) {
+	sealed, err := s.SealedRecords()
+	if err != nil {
+		return ChainReport{}, err
+	}
+
+	head, err := ReadHead(s.headPath())
+	if err != nil {
+		return ChainReport{}, fmt.Errorf("reading chain head: %w", err)
+	}
+
+	return VerifyChain(sealed, head, trust), nil
+}
+
 // UpdateRun updates a DRAFT record — a run that is still in flight. When the
 // update carries the run to a terminal status, the record is sealed: chained,
 // signed, and made immutable.
