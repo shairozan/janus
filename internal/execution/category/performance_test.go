@@ -177,6 +177,7 @@ func BenchmarkNONMEMCategory_ContainerStructure(b *testing.B) {
 		b.Fatal(err)
 	}
 	b.Setenv("HOME", tmpHome)
+	b.Setenv("USERPROFILE", tmpHome) // Windows uses USERPROFILE
 
 	// Create model, data, and license files
 	modelPath := filepath.Join(tmpDir, "test.mod")
@@ -341,6 +342,7 @@ func TestPerformance_ContainerStructureBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome) // Windows uses USERPROFILE
 
 	// Create typical-sized files
 	modelPath := filepath.Join(tmpDir, "test.mod")

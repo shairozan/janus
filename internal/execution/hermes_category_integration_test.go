@@ -493,6 +493,7 @@ func TestHermesExecutor_NilConfigWithCategory(t *testing.T) {
 	tmpHome := filepath.Join(tmpDir, "home")
 	require.NoError(t, os.MkdirAll(tmpHome, 0755))
 	t.Setenv("HOME", tmpHome)
+	t.Setenv("USERPROFILE", tmpHome) // Windows uses USERPROFILE
 
 	t.Run("NONMEM category handles nil config", func(t *testing.T) {
 		// Create license in home directory
