@@ -9,7 +9,6 @@ import (
 type ExecutorFlags struct {
 	HermesConfig string // Explicit config path via --executor-hermes-config
 	JanusConfig  string // Janus config path via --executor-janus-config
-	License      string // License file path via --executor-license
 	Quiet        bool   // Suppress streaming via --executor-quiet
 	Help         bool   // Show executor help via --executor-help
 	Version      bool   // Show executor version via --executor-version
@@ -44,17 +43,6 @@ func parseExecutorFlags(args []string) (ExecutorFlags, []string) {
 			flags.RunIQ = true
 		case arg == "--executor-run-oq":
 			flags.RunOQ = true
-
-		// --executor-license with = syntax
-		case strings.HasPrefix(arg, "--executor-license="):
-			flags.License = strings.TrimPrefix(arg, "--executor-license=")
-
-		// --executor-license with separate argument
-		case arg == "--executor-license":
-			if i+1 < len(args) {
-				flags.License = args[i+1]
-				i++ // Skip next arg (it's the value)
-			}
 
 		// --executor-hermes-config with = syntax
 		case strings.HasPrefix(arg, "--executor-hermes-config="):

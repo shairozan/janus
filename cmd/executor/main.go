@@ -59,18 +59,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 6. Verify license (fail fast)
-	licensePath := execFlags.License
-	if licensePath == "" {
-		licensePath = getDefaultLicensePath()
-	}
-
-	if err := verifyLicense(licensePath); err != nil {
-		fmt.Fprintf(os.Stderr, "License verification failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 7. Execute via Hermes
+	// 6. Execute via Hermes
 	exitCode := executeHermes(modelCfg.Hermes, modelCfg.Retain, modelPath, containerArgs, execFlags)
 	os.Exit(exitCode)
 }

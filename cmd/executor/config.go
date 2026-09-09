@@ -92,45 +92,6 @@ func findHermesConfig(args []string, explicitConfigPath string) (string, string,
 		"        Or use: --executor-hermes-config /path/to/config.json")
 }
 
-// getDefaultLicensePath returns the default license file location.
-// Tries multiple locations in priority order and returns the first that exists:
-//  1. Environment variable: $JANUS_LICENSE
-//  2. Home directory: ~/.config/janus/license.jwt
-//  3. Current directory: ./license.jwt
-//
-// If none exist, returns the preferred default (~/.config/janus/license.jwt)
-// so the error message shows the expected location.
-func getDefaultLicensePath() string {
-	// Priority 1: Environment variable
-	if envPath := os.Getenv("JANUS_LICENSE"); envPath != "" {
-		if _, err := os.Stat(envPath); err == nil {
-			return envPath
-		}
-	}
-
-	// Priority 2: Home directory
-	home, err := os.UserHomeDir()
-	if err == nil {
-		homePath := filepath.Join(home, ".config", "janus", "license.jwt")
-		if _, err := os.Stat(homePath); err == nil {
-			return homePath
-		}
-	}
-
-	// Priority 3: Current directory
-	cwdPath := "./license.jwt"
-	if _, err := os.Stat(cwdPath); err == nil {
-		return cwdPath
-	}
-
-	// No file found - return preferred default for error messages
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".config", "janus", "license.jwt")
-	}
-
-	return "./license.jwt"
-}
-
 // loadJanusConfig loads the Janus configuration file using direct YAML unmarshaling.
 // Tries multiple locations in priority order:
 //  1. Explicit path (if provided)

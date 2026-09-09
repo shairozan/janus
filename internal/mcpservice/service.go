@@ -8,7 +8,6 @@ import (
 
 	"github.com/pharmalytica/janus/internal/config"
 	"github.com/pharmalytica/janus/internal/execution"
-	"github.com/pharmalytica/janus/internal/license/validator"
 	"github.com/pharmalytica/janus/internal/mcp"
 	"github.com/pharmalytica/janus/internal/runlog"
 )
@@ -24,7 +23,6 @@ var _ mcp.Bridge = (*Service)(nil)
 // the GUI through a thin wrapper.
 type Service struct {
 	cfg     *config.Config
-	license *validator.Claims // for feature gating; may be nil
 	resolve StoreResolver
 	appCtx  context.Context //nolint:containedctx // app/daemon-lifetime context for background runs
 
@@ -42,7 +40,6 @@ type Service struct {
 // Options configures a Service.
 type Options struct {
 	Config     *config.Config
-	License    *validator.Claims
 	Resolve    StoreResolver
 	AppCtx     context.Context //nolint:containedctx // app/daemon-lifetime context handed to background runs
 	OnComplete func(store *runlog.RunLogStore)
@@ -65,7 +62,6 @@ func New(opts Options) (*Service, error) {
 
 	return &Service{
 		cfg:        opts.Config,
-		license:    opts.License,
 		resolve:    opts.Resolve,
 		appCtx:     opts.AppCtx,
 		onComplete: opts.OnComplete,
@@ -75,10 +71,6 @@ func New(opts Options) (*Service, error) {
 
 func (s *Service) allowExecute() bool {
 	return s.cfg.MCP.AllowExecute
-}
-
-func (s *Service) hasFeature(feature string) bool {
-	return s.license != nil && s.license.HasFeature(feature)
 }
 
 func (s *Service) reportErr(err error) {
@@ -217,7 +209,7 @@ func (s *Service) Execute(req mcp.ExecuteRequest) (runID, command string, err er
 
 	factory := execution.NewExecutorFactory(s.cfg)
 	if concrete, ok := factory.(*execution.DefaultExecutorFactory); ok {
-		concrete.SetRunLogEnabled(s.hasFeature("runlog"))
+		concrete.SetRunLogEnabled(true)
 	}
 
 	var executor execution.Executor

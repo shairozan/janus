@@ -20,7 +20,6 @@ USAGE:
 EXECUTOR FLAGS (never passed to container):
     --executor-help                  Show this help message
     --executor-version               Show executor version
-    --executor-license PATH          License JWT file (default: ~/.config/janus/license.jwt)
     --executor-janus-config PATH     Janus config file for Docker socket and settings
     --executor-quiet                 Suppress output streaming
     --executor-hermes-config PATH    Explicit Hermes config file location
@@ -64,9 +63,6 @@ EXAMPLES:
 
     # Quiet mode (no streaming)
     executor --executor-quiet model.mod model.lst
-
-    # Custom license location
-    executor --executor-license /etc/janus/license.jwt model.mod
 
 TOOL ARGUMENTS:
     All arguments not starting with --executor- are passed directly to the

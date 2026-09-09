@@ -56,18 +56,6 @@ func TestParseExecutorFlags(t *testing.T) {
 			expectedArgs:  []string{"model.mod"},
 		},
 		{
-			name:          "license with equals syntax",
-			args:          []string{"--executor-license=/path/license.jwt", "model.mod"},
-			expectedFlags: ExecutorFlags{License: "/path/license.jwt"},
-			expectedArgs:  []string{"model.mod"},
-		},
-		{
-			name:          "license with separate arg",
-			args:          []string{"--executor-license", "/path/license.jwt", "model.mod"},
-			expectedFlags: ExecutorFlags{License: "/path/license.jwt"},
-			expectedArgs:  []string{"model.mod"},
-		},
-		{
 			name:          "mixed executor and tool flags",
 			args:          []string{"--executor-quiet", "model.mod", "--maxeval=9999", "-background"},
 			expectedFlags: ExecutorFlags{Quiet: true},
@@ -78,13 +66,11 @@ func TestParseExecutorFlags(t *testing.T) {
 			args: []string{
 				"--executor-quiet",
 				"--executor-no-runlog",
-				"--executor-license", "/path/license.jwt",
 				"model.mod", "model.lst",
 			},
 			expectedFlags: ExecutorFlags{
 				Quiet:    true,
 				NoRunlog: true,
-				License:  "/path/license.jwt",
 			},
 			expectedArgs: []string{"model.mod", "model.lst"},
 		},
@@ -111,13 +97,11 @@ func TestParseExecutorFlags(t *testing.T) {
 			args: []string{
 				"--executor-quiet",
 				"model.mod",
-				"--executor-license=/license.jwt",
 				"model.lst",
 				"-maxeval=9999",
 			},
 			expectedFlags: ExecutorFlags{
-				Quiet:   true,
-				License: "/license.jwt",
+				Quiet: true,
 			},
 			expectedArgs: []string{"model.mod", "model.lst", "-maxeval=9999"},
 		},
@@ -150,15 +134,6 @@ func TestParseExecutorFlags_EdgeCases(t *testing.T) {
 		assert.True(t, flags.Quiet)
 		assert.True(t, flags.Version)
 		assert.Equal(t, []string{}, containerArgs)
-	})
-
-	t.Run("license flag at end without value", func(t *testing.T) {
-		// Edge case: --executor-license at end with no following arg
-		// Should not crash, just leave License empty
-		flags, containerArgs := parseExecutorFlags([]string{"model.mod", "--executor-license"})
-
-		assert.Equal(t, "", flags.License)
-		assert.Equal(t, []string{"model.mod"}, containerArgs)
 	})
 
 	t.Run("config flag at end without value", func(t *testing.T) {

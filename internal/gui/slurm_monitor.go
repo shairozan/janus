@@ -580,11 +580,6 @@ func (a *App) setupSLURMMonitoring() {
 		return
 	}
 
-	// Only set up SLURM monitoring if licensed for "grid" feature
-	if !a.HasFeature("grid") {
-		return
-	}
-
 	// Only set up SLURM monitoring if scheduler is SLURM
 	if a.config.Scheduler != "SLURM" {
 		return

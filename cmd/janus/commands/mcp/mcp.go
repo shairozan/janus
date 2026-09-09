@@ -4,7 +4,6 @@
 package mcp
 
 import (
-	"embed"
 	"fmt"
 	"io"
 
@@ -13,9 +12,8 @@ import (
 	"github.com/pharmalytica/janus/internal/config"
 )
 
-// Command returns the `mcp` parent command. assets carries the embedded license
-// public keys, needed by the `server` subcommand to validate the license.
-func Command(assets embed.FS) *cobra.Command {
+// Command returns the `mcp` parent command.
+func Command() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp",
 		Short: "Manage the embedded MCP server",
@@ -27,7 +25,7 @@ run log to local agents (e.g. Claude Code) over loopback HTTP.
 	}
 
 	cmd.AddCommand(tokenCommand())
-	cmd.AddCommand(serverCommand(assets))
+	cmd.AddCommand(serverCommand())
 
 	return cmd
 }
@@ -41,9 +39,9 @@ func tokenCommand() *cobra.Command {
 		Long: `Print the MCP server's bearer token to stdout.
 
 The bearer token is the credential the MCP server checks on every request — it is
-distinct from your Janus license. If no token is configured yet, a cryptographically
-random one is generated, saved to the config file (so it is stable across restarts),
-and printed.
+distinct from your run-log signing key. If no token is configured yet, a
+cryptographically random one is generated, saved to the config file (so it is
+stable across restarts), and printed.
 
 Because it prints only the token to stdout, it is suitable for command substitution
 when registering the server with an agent:

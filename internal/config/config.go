@@ -268,15 +268,30 @@ type NONMEMLicenseConfig struct {
 }
 
 // SigningConfig represents run log cryptographic signing configuration.
-// Users generate RSA key pairs externally and submit the public key when
-// requesting a license. The public key is embedded in the JWT license claims.
-// Janus validates that the configured private key matches the public key
-// in the license at startup.
+//
+// Signing and verification are independent halves. PrivateKeyPath and Identity
+// describe the key this install signs with; KeyringPath lists the public keys
+// whose signatures it accepts. Either half may be configured without the other:
+// you can sign without trusting anyone, and verify without holding a key.
+//
+// All three are optional — signing is off by default.
 type SigningConfig struct {
 	// PrivateKeyPath is the path to the RSA private key file (PEM format).
 	// This key is used to sign run log entries for cryptographic verification.
-	// The corresponding public key must be embedded in the JWT license.
 	PrivateKeyPath string `mapstructure:"private_key_path" yaml:"private_key_path"`
+
+	// Identity labels the signing key — conventionally an email address — and is
+	// recorded on every signed record as signer_email. It belongs to the key, not
+	// to the process: verification anchors on the key fingerprint, and the keyring
+	// maps this label to a public key. It is deliberately not derived from the OS
+	// user at run time, which would let the recorded identity drift from the key
+	// that produced the signature.
+	Identity string `mapstructure:"identity" yaml:"identity"`
+
+	// KeyringPath is the path to the YAML keyring listing the public keys whose
+	// signatures this install accepts. A missing keyring means "trust nobody":
+	// signed records report Unverifiable rather than Valid.
+	KeyringPath string `mapstructure:"keyring_path" yaml:"keyring_path"`
 }
 
 // NONMEMConfig represents NONMEM-specific configuration.
@@ -888,6 +903,12 @@ func ExpandSigningPrivateKeyPath(path string) (string, error) {
 	}
 
 	return path, nil
+}
+
+// ExpandSigningKeyringPath expands the home directory in the signing keyring path.
+// Returns the expanded path or empty string if not configured.
+func ExpandSigningKeyringPath(path string) (string, error) {
+	return ExpandSigningPrivateKeyPath(path)
 }
 
 // ValidateSigningConfig validates the signing configuration.

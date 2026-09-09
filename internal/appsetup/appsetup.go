@@ -1,81 +1,32 @@
 // Package appsetup holds the GUI-free bootstrap steps shared by the desktop app
-// and the `janus mcp server` daemon: validating the license JWT against the
-// embedded public keys, and constructing the run-log signer from config. Keeping
-// these here means the daemon does not import internal/gui (and therefore no
-// fyne) to perform the same startup wiring.
+// and the `janus mcp server` daemon: constructing the run-log signer and the
+// verification trust anchor from config. Keeping these here means the daemon does
+// not import internal/gui (and therefore no fyne) to perform the same startup
+// wiring.
 package appsetup
 
 import (
-	"embed"
+	"errors"
 	"fmt"
-	"io"
-	"os"
+	"io/fs"
 
 	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/license/validator"
 	"github.com/pharmalytica/janus/internal/runlog"
 	"github.com/pharmalytica/janus/internal/signing"
 )
 
-// ValidateLicenseReader reads a license JWT from r and validates it against the
-// public keys embedded in assets, returning the claims.
-func ValidateLicenseReader(r io.Reader, assets embed.FS) (*validator.Claims, error) {
-	tokenBytes, err := io.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read license: %w", err)
-	}
-
-	v, err := validator.NewValidator(assets)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create validator: %w", err)
-	}
-
-	claims, err := v.ValidateToken(string(tokenBytes))
-	if err != nil {
-		return nil, fmt.Errorf("invalid license token: %w", err)
-	}
-
-	return claims, nil
-}
-
-// ValidateLicensePath opens the license file at path and validates it.
-func ValidateLicensePath(path string, assets embed.FS) (*validator.Claims, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open license file at %s: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-
-	return ValidateLicenseReader(f, assets)
-}
-
-// BuildSigner constructs the run-log signer from cfg, validating the configured
-// private key against the license's embedded public key for CFR 21 Part 11
-// compliance. It returns (nil, nil) when signing is not configured (disabled),
-// (signer, nil) when enabled and valid, and (nil, err) on a configuration or key
-// mismatch. Callers decide how to surface the error (the GUI shows a dialog; the
-// daemon logs and continues unsigned).
-func BuildSigner(cfg *config.Config, claims *validator.Claims) (*signing.Signer, error) {
-	var privateKeyPath string
-	if cfg != nil && cfg.Signing.PrivateKeyPath != "" {
-		expanded, err := config.ExpandSigningPrivateKeyPath(cfg.Signing.PrivateKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("expanding signing private key path: %w", err)
-		}
-
-		privateKeyPath = expanded
-	}
-
-	// Validate key-pair consistency between config and license even when no key is
-	// configured (the validator enforces the license's signing requirements).
-	if claims != nil {
-		if err := validator.ValidateSigningKeyPair(claims, privateKeyPath); err != nil {
-			return nil, fmt.Errorf("signing key pair validation failed: %w", err)
-		}
-	}
-
-	if privateKeyPath == "" {
+// BuildSigner constructs the run-log signer from cfg. It returns (nil, nil) when
+// signing is not configured (disabled), (signer, nil) when enabled, and
+// (nil, err) on a configuration or key error. Callers decide how to surface the
+// error (the GUI shows a dialog; the daemon logs and continues unsigned).
+func BuildSigner(cfg *config.Config) (*signing.Signer, error) {
+	if cfg == nil || cfg.Signing.PrivateKeyPath == "" {
 		return nil, nil // signing disabled
+	}
+
+	privateKeyPath, err := config.ExpandSigningPrivateKeyPath(cfg.Signing.PrivateKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("expanding signing private key path: %w", err)
 	}
 
 	signer, err := signing.NewSigner(privateKeyPath)
@@ -86,26 +37,52 @@ func BuildSigner(cfg *config.Config, claims *validator.Claims) (*signing.Signer,
 	return signer, nil
 }
 
-// BuildTrustStore constructs the run-log verification trust anchor.
+// SignerIdentity returns the identity recorded on records this install signs.
 //
-// This is the seam that will let Janus go open source: the commercial build
-// anchors trust in claims.SigningPublicKey (the license's signing key, already
-// validated against the configured private key by BuildSigner/
-// ValidateSigningKeyPair and, until now, discarded afterward); an open-source
-// build would anchor it in a user-managed keyring via runlog.NewKeyringTrust
-// instead. Either way the verification path in internal/runlog is identical.
+// The identity belongs to the signing key, not to the process: it is what the
+// trust keyring matches a public key to, and verification anchors on the key
+// fingerprint rather than on this string. Resolving it per-run (from the OS user,
+// say) would let the identity on a record drift from the key that produced the
+// signature, which is a provenance defect in a tamper-evident log.
 //
-// It returns (nil, nil) when the license carries no signing key — signing is
-// optional, and a nil TrustStore makes every signed record report Unverifiable,
-// never Valid, which is the correct degradation.
-func BuildTrustStore(claims *validator.Claims) (runlog.TrustStore, error) {
-	if claims == nil || claims.SigningPublicKey == "" {
+// It returns "" when signing.identity is unset, which is not an error — an
+// unsigned install has no identity to record.
+func SignerIdentity(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+
+	return cfg.Signing.Identity
+}
+
+// BuildTrustStore constructs the run-log verification trust anchor from the
+// user- or org-maintained keyring: a list of public keys whose signatures this
+// install accepts. See runlog.NewKeyringTrust for the file shape.
+//
+// It returns (nil, nil) when no keyring is configured or the configured keyring
+// does not exist yet. Signing and verification are independent — you can sign
+// without trusting anyone — and a nil TrustStore makes every signed record report
+// Unverifiable rather than Valid, which is the correct degradation.
+func BuildTrustStore(cfg *config.Config) (runlog.TrustStore, error) {
+	if cfg == nil || cfg.Signing.KeyringPath == "" {
 		return nil, nil
 	}
 
-	trust, err := runlog.NewLicenseTrust(claims.SigningPublicKey, claims.UserEmail)
+	keyringPath, err := config.ExpandSigningKeyringPath(cfg.Signing.KeyringPath)
 	if err != nil {
-		return nil, fmt.Errorf("building license trust store: %w", err)
+		return nil, fmt.Errorf("expanding signing keyring path: %w", err)
+	}
+
+	trust, err := runlog.NewKeyringTrust(keyringPath)
+	if err != nil {
+		// A keyring that has not been created yet means "trust nobody", not a
+		// misconfiguration. Anything else (malformed YAML, unreadable key) is a
+		// real error the caller should see.
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("building keyring trust store: %w", err)
 	}
 
 	return trust, nil

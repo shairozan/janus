@@ -2,12 +2,9 @@ package mcp
 
 import (
 	"context"
-	"embed"
 	"fmt"
 	"log"
-	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -23,7 +20,7 @@ import (
 // headlessly (no GUI) until it receives SIGINT/SIGTERM. It coexists with a
 // running GUI: the run-log store serializes writes across processes with a file
 // lock, so neither the daemon nor the GUI is the privileged writer.
-func serverCommand(assets embed.FS) *cobra.Command {
+func serverCommand() *cobra.Command {
 	var cfg *config.Config
 
 	cmd := &cobra.Command{
@@ -44,7 +41,7 @@ Example systemd --user unit (~/.config/systemd/user/janus-mcp.service):
   After=network.target
 
   [Service]
-  ExecStart=%h/.local/bin/janus mcp server --license %h/.config/janus/license.jwt --allow-execute
+  ExecStart=%h/.local/bin/janus mcp server --allow-execute
   Restart=on-failure
 
   [Install]
@@ -55,11 +52,10 @@ Then: systemctl --user enable --now janus-mcp.service`,
 		SilenceUsage:      true,
 		PersistentPreRunE: config.NewInitializer(&cfg, config.InitializerOptions{ConfigFlagName: "config", SuppressOutput: true}),
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runServer(c, cfg, assets)
+			return runServer(c, cfg)
 		},
 	}
 
-	cmd.Flags().String("license", defaultLicensePath(), "path to license JWT file")
 	cmd.Flags().Bool("allow-execute", false, "allow agents to launch runs (execute_run); overrides config when set")
 	cmd.Flags().String("host", "", "loopback bind host (overrides config; default 127.0.0.1)")
 	cmd.Flags().Int("port", 0, "bind port (overrides config; default 8731)")
@@ -67,7 +63,7 @@ Then: systemctl --user enable --now janus-mcp.service`,
 	return cmd
 }
 
-func runServer(c *cobra.Command, cfg *config.Config, assets embed.FS) error {
+func runServer(c *cobra.Command, cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("no configuration found; run 'janus gui' to set up Janus first")
 	}
@@ -93,25 +89,15 @@ func runServer(c *cobra.Command, cfg *config.Config, assets embed.FS) error {
 		return fmt.Errorf("invalid MCP configuration: %w", err)
 	}
 
-	// Validate the license (needed for feature gating and run-log signing).
-	licensePath, _ := c.Flags().GetString("license")
-	claims, err := appsetup.ValidateLicensePath(licensePath, assets)
-	if err != nil {
-		return fmt.Errorf("license validation failed: %w", err)
-	}
-
-	log.Printf("License validated: Org=%d, Tier=%s, Features=%v",
-		claims.OrganizationID, claims.Tier, claims.Features)
-
 	// Build the run-log signer (non-fatal: continue unsigned on failure).
-	signer, err := appsetup.BuildSigner(cfg, claims)
+	signer, err := appsetup.BuildSigner(cfg)
 	if err != nil {
 		log.Printf("Warning: run-log signing disabled: %v", err)
 	}
 
 	signerEmail := ""
 	if signer != nil {
-		signerEmail = claims.UserEmail
+		signerEmail = appsetup.SignerIdentity(cfg)
 	}
 
 	// Provision the bearer token (generate + persist if unset).
@@ -132,7 +118,6 @@ func runServer(c *cobra.Command, cfg *config.Config, assets embed.FS) error {
 
 	service, err := mcpservice.New(mcpservice.Options{
 		Config:  cfg,
-		License: claims,
 		Resolve: resolver.Resolve,
 		AppCtx:  ctx,
 		ErrSink: func(e error) { log.Printf("mcp: %v", e) },
@@ -169,12 +154,3 @@ func runServer(c *cobra.Command, cfg *config.Config, assets embed.FS) error {
 	return nil
 }
 
-// defaultLicensePath returns the conventional license location.
-func defaultLicensePath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "./license.jwt"
-	}
-
-	return filepath.Join(home, ".config", "janus", "license.jwt")
-}

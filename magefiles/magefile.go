@@ -39,13 +39,6 @@ func Build() error {
 
 	ldflags := fmt.Sprintf("-s -w -X github.com/pharmalytica/janus/internal/version.Version=dev -X github.com/pharmalytica/janus/internal/version.Commit=%s -X github.com/pharmalytica/janus/internal/version.Date=%s -X github.com/pharmalytica/janus/internal/version.BuiltBy=mage", commit, date)
 
-	// Check if public key file exists for go:embed
-	if _, err := os.Stat(".license_public_key.pem"); err == nil {
-		fmt.Println("🔑 License public key will be embedded via go:embed")
-	} else {
-		fmt.Println("ℹ️  No public key found (.license_public_key.pem) - building without license validation")
-	}
-
 	env := map[string]string{
 		"CGO_ENABLED": "1",
 	}
@@ -301,14 +294,6 @@ func Release(ctx context.Context, version string) error {
 	}
 
 	ldflags := fmt.Sprintf("-s -w -X github.com/pharmalytica/janus/internal/version.Version=%s -X github.com/pharmalytica/janus/internal/version.Commit=%s -X github.com/pharmalytica/janus/internal/version.Date=%s -X github.com/pharmalytica/janus/internal/version.BuiltBy=mage", version, commit, date)
-
-	// Check if public key file exists for go:embed
-	if _, err := os.Stat(".license_public_key.pem"); err == nil {
-		fmt.Println("🔑 License public key will be embedded via go:embed")
-	} else {
-		fmt.Println("⚠️  Warning: No public key found (.license_public_key.pem)")
-		fmt.Println("   License validation will not work in this build")
-	}
 
 	env := map[string]string{
 		"CGO_ENABLED": "1",
@@ -731,22 +716,6 @@ Homepage: https://github.com/pharmalytica/janus
 // BuildExecutor builds the executor binary for the current platform
 func BuildExecutor() error {
 	fmt.Println("🔨 Building executor binary...")
-
-	// Copy license public key to cmd/executor for embedding
-	// This allows the executor to validate licenses using the embedded key
-	licenseSrc := ".license_public_key.pem"
-	licenseDst := "cmd/executor/.license_public_key.pem"
-	if _, err := os.Stat(licenseSrc); err == nil {
-		if err := sh.Copy(licenseDst, licenseSrc); err != nil {
-			fmt.Printf("⚠️  Warning: Failed to copy license public key: %v\n", err)
-			fmt.Println("   Executor will run in dev mode (license validation skipped)")
-		} else {
-			fmt.Println("📋 License public key copied for embedding")
-		}
-	} else {
-		fmt.Println("⚠️  Warning: No license public key found at repository root")
-		fmt.Println("   Executor will run in dev mode (license validation skipped)")
-	}
 
 	// Get git commit
 	commit, _ := sh.Output("git", "rev-parse", "HEAD")
