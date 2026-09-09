@@ -3,7 +3,7 @@ build/
 dist/
 *.app
 *.apk
-janus
+/janus
 janus.exe
 janus-ubuntu*
 janus_*.deb

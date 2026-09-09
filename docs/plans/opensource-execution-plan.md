@@ -105,18 +105,25 @@ The Janus license enters the process as a `*validator.Claims` and reaches exactl
 nine call sites outside `internal/license`. That value — not the word "license" —
 is the thing to trace.
 
-### The two entry points
+### The three entry points
 
-There are **two independent license gates**, not one:
+There are **three independent license gates**, not one:
 
 | Gate | Path discovery | Enforcement |
 |---|---|---|
 | GUI / main binary | `--license` flag, default `~/.config/janus/license.jwt` ([cmd/root.go:101](../../cmd/root.go:101)) | [cmd/gui/gui.go:97](../../cmd/gui/gui.go:97) → `SetLicenseClaims` |
 | `executor` binary | `--executor-license` flag, then `$JANUS_LICENSE`, then `~/.config/janus/license.jwt`, then `./license.jwt` ([cmd/executor/config.go:103](../../cmd/executor/config.go:103)) | hard exit at [cmd/executor/main.go:68](../../cmd/executor/main.go:68) |
+| `janus mcp server` | own `--license` flag + `defaultLicensePath()` ([cmd/janus/commands/mcp/server.go:62](../../cmd/janus/commands/mcp/server.go:62)) | hard fail at [server.go:98](../../cmd/janus/commands/mcp/server.go:98) |
 
-The executor has its own flag, its own env var, its own four-tier path
-resolution, and its own `embed.FS` ([cmd/executor/license.go:13](../../cmd/executor/license.go:13)).
-Any plan that only removes the GUI gate leaves the executor refusing to start.
+Each carries its own flag and its own path resolution; the executor adds an env
+var and its own `embed.FS`
+([cmd/executor/license.go:13](../../cmd/executor/license.go:13)). Removing only the
+GUI gate leaves the other two refusing to start.
+
+> The MCP gate was invisible during the first pass through this codebase because
+> `cmd/janus/` was excluded from git by the `.gitignore` bug described in the
+> Sprint 0 results. It surfaced only once the tree was recovered — a reminder
+> that on this repo, "not in git" did not mean "not in the build".
 
 **The executor gate is already dead code.** Its `//go:embed *` cannot ever
 supply `.license_public_key.pem`: `go:embed *` excludes dotfiles by rule, and the
@@ -132,7 +139,7 @@ prints a warning, and returns nil. Deleting it changes no runtime behavior.
 | Field | Consumed by | Replacement |
 |---|---|---|
 | `Features` | 4 real gates (below) | delete the gating |
-| `UserEmail` | signer identity: [app.go:3815](../../internal/gui/app.go:3815), [mcp_bridge.go:44](../../internal/gui/mcp_bridge.go:44), stored on every record as `RunRecord.SignerEmail` | OS user |
+| `UserEmail` | signer identity: [app.go:3815](../../internal/gui/app.go:3815), [mcp_bridge.go:44](../../internal/gui/mcp_bridge.go:44), stored on every record as `RunRecord.SignerEmail` | identity bound to the key |
 | `SigningPublicKey` | trust anchor via `NewLicenseTrust` ([appsetup.go:106](../../internal/appsetup/appsetup.go:106)) and key-pair proof via `ValidateSigningKeyPair` ([appsetup.go:72](../../internal/appsetup/appsetup.go:72)) | keyring file |
 
 `AgreementID`, `OrganizationID`, `Tier`, and `MaxSeats` are read only by a debug
@@ -200,6 +207,45 @@ gates Sprint 6. Start it before Sprint 1.
 **Exit criteria**: a written yes/no on Apple signing viability, a pinned hermes
 version, and confirmed Docker Hub access.
 
+## Sprint 0 results (2026-09-09)
+
+| Item | Result |
+|---|---|
+| hermes public | ✅ clones unauthenticated; MIT licensed |
+| hermes module path | ✅ **resolved during this sprint** — `v0.0.4` (97ddf16) declares `github.com/shairozan/hermes` and is indexed by the Go proxy. Sprint 4 pins that. |
+| Docker Hub | ✅ `dukeofubuntu/janus-ci` public: `ubuntu20`, `ubuntu22`, `ubuntu24`, plus an `ubuntu26` the release matrix does not yet use |
+| janus git remote | ✅ already `git@github.com:shairozan/janus.git` |
+| Apple certificates | ⬜ outstanding — needs the Bitwarden export and the Developer account status |
+
+Hermes needed a **new version number, not a re-tag**: `v0.0.1`-`v0.0.3` point at
+commits predating the rename and still declare `github.com/pharmalytica/hermes`
+inside, and `proxy.golang.org` caches versions immutably — so force-moving an
+existing tag would have kept serving the old content and produced a checksum
+mismatch. Cutting `v0.0.4` off `main` sidestepped that.
+
+### Two build breakages found on `main`
+
+Neither is caused by this work; both must be fixed for the repo to be usable
+once public.
+
+**1. `.gitignore` was swallowing a source tree.** Line 6 held the bare pattern
+`janus`, intended for the built binary at the repo root. Git patterns without a
+slash match at any depth *and* match directories, so it also matched
+`cmd/janus/` — and `git add` skipped the whole tree silently, with no warning,
+from the initial commit onward. The four packages
+`cmd/janus/commands/{execute,hermes,mcp,validate}`, imported by
+[cmd/root.go:14-17](../../cmd/root.go:14), were never in git history at all.
+
+*Fixed*: the pattern is now anchored as `/janus`, and the tree was recovered from
+a local backup. The other patterns (`janus.exe`, `janus-ubuntu*`, `janus_*.deb`)
+are specific enough to be safe.
+
+**2. `//go:embed .license_public_key.pem`** at [main.go:18](../../main.go:18) makes
+a clean clone unbuildable — the file is only ever created by the CI
+`setup-license-key` action, so `go build ./...` fails locally with
+`pattern .license_public_key.pem: no matching files found`. Sprint 1 removes this
+embed, which fixes it as a side effect.
+
 ---
 
 # Sprint 1 — Unlicensed startup
@@ -228,6 +274,18 @@ lines in [help.go:23](../../cmd/executor/help.go:23) and
 already inert, so it should be behaviour-neutral — but it is a hard `os.Exit`
 path, so verify by running the executor with `$JANUS_LICENSE` set to a garbage
 path both before and after.
+
+**Gate 3 — the MCP daemon.** Delete the `--license` flag and
+`defaultLicensePath()` from
+[cmd/janus/commands/mcp/server.go:62](../../cmd/janus/commands/mcp/server.go:62),
+the `ValidateLicensePath` call and the `License validated: Org=…` log line
+([server.go:96-104](../../cmd/janus/commands/mcp/server.go:96)), and the
+`License: claims` option at
+[server.go:135](../../cmd/janus/commands/mcp/server.go:135). Also update the example
+systemd unit in the command's help text
+([server.go:47](../../cmd/janus/commands/mcp/server.go:47)), which tells users to
+pass `--license` — leaving it would ship a flag that no longer exists.
+`Command(assets)` and `serverCommand(assets)` lose their parameter here.
 
 **Un-thread the embeds.** Two of them: `//go:embed .license_public_key.pem` at
 [main.go:18](../../main.go:18), threaded as `assets embed.FS` through
@@ -407,7 +465,7 @@ Large but mechanical. Keep it as its own commit series so review stays tractable
 - **Module path**: `github.com/pharmalytica/janus` → `github.com/shairozan/janus`
   in `go.mod` and 239 files of self-imports. One mechanical commit.
 - **Hermes**: `github.com/pharmalytica/hermes v0.0.1` →
-  `github.com/shairozan/hermes` at the tag pinned in Sprint 0 — 36 import lines
+  `github.com/shairozan/hermes v0.0.4` — 36 import lines
   across 10 files (`internal/execution/hermes*.go`, `internal/runlog/logger.go`,
   `internal/runlog/types.go`, `internal/kube/kube_test.go`).
 - **Delete the private-repo plumbing**, now pointless since hermes is public:
