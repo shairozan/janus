@@ -148,7 +148,7 @@ This was originally developed purely on linux, then moved to windows, which expo
 
 ## Docker Development with Private Repositories
 
-Janus depends on the private `github.com/pharmalytica/hermes` repository. To build and test in Docker, you need to provide GitHub credentials:
+Janus depends on the private `github.com/shairozan/hermes` repository. To build and test in Docker, you need to provide GitHub credentials:
 
 ### Setup GitHub Authentication
 
@@ -363,7 +363,7 @@ The correlation strategy is configured per-model in `.janus.config.json`:
 
 ```json
 {
-  "image": "pharmalytica/hermes-nonmem:nm76",
+  "image": "shairozan/hermes-nonmem:nm76",
   "container_command_path": "/opt/NONMEM/nm76/run/nmfe76",
   "resources": {
     "cpu_cores": 4,
@@ -440,7 +440,7 @@ execution-mode: "HERMES"
 # Hermes Configuration
 hermes:
   # Container image with NONMEM and dependencies
-  image: "pharmalytica/hermes-nonmem:nm76"
+  image: "shairozan/hermes-nonmem:nm76"
 
   # NONMEM license file configuration
   # CRITICAL: This file is required for NONMEM execution
@@ -1069,7 +1069,7 @@ Create a `.janus.config.json` file next to your model files or in your working d
 
 ```json
 {
-  "image": "pharmalytica/hermes-nonmem:nm76",
+  "image": "shairozan/hermes-nonmem:nm76",
   "license": {
     "path": "/home/user/.config/janus/nonmem.lic"
   },
@@ -1098,7 +1098,7 @@ Create a `.janus.config.json` file next to your model files or in your working d
 - Docker installed and accessible
 - `.janus.config.json` with Hermes container settings
 - Valid Janus license JWT (or dev mode build without embedded key)
-- Hermes container image (e.g., `pharmalytica/hermes-nonmem:nm76`)
+- Hermes container image (e.g., `shairozan/hermes-nonmem:nm76`)
 
 ### Example Workflow
 
@@ -1107,7 +1107,7 @@ Create a `.janus.config.json` file next to your model files or in your working d
 cd ~/models/project1
 cat > .janus.config.json <<EOF
 {
-  "image": "pharmalytica/hermes-nonmem:nm76",
+  "image": "shairozan/hermes-nonmem:nm76",
   "license": {"path": "~/.config/janus/nonmem.lic"},
   "resources": {"cpus": "4", "memory": "8G"},
   "retain": ["*.lst", "*.ext", "*.tab"]

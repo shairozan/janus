@@ -3,30 +3,17 @@
 
 FROM dukeofubuntu/janus-ci:latest-ubuntu24
 
-# Accept GitHub credentials as build arguments for private repo access
-ARG GITHUB_USER
-ARG GITHUB_TOKEN
-
 # Set environment variables for consistent builds
 ENV CGO_ENABLED=1
 ENV GOPROXY=https://proxy.golang.org,direct
 ENV GOSUMDB=sum.golang.org
 ENV GOPATH=/go
 ENV PATH=${PATH}:/go/bin
-ENV GOPRIVATE=github.com/pharmalytica/hermes
 
 # Create cache directories
 RUN mkdir -p /go/pkg/mod && \
     mkdir -p /root/.cache/go-build && \
     mkdir -p /workspace
-
-# Configure Git to use GitHub token for private repositories (if provided)
-RUN if [ -n "$GITHUB_USER" ] && [ -n "$GITHUB_TOKEN" ]; then \
-        git config --global url."https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/".insteadOf "https://github.com/"; \
-        echo "✅ Git configured for private repository access"; \
-    else \
-        echo "⚠️  GITHUB_USER/GITHUB_TOKEN not provided - private repos may not be accessible"; \
-    fi
 
 # Set working directory
 WORKDIR /workspace

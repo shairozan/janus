@@ -51,10 +51,10 @@ func (v VerificationStatus) String() string {
 // This is recorded when running with Hermes to ensure reproducibility and auditability.
 type ContainerProvenance struct {
 	// Image information
-	ImageName   string `json:"image_name"`             // Image name without tag (e.g., "pharmalytica/hermes-nonmem")
+	ImageName   string `json:"image_name"`             // Image name without tag (e.g., "shairozan/hermes-nonmem")
 	ImageTag    string `json:"image_tag"`              // Image tag (e.g., "nm76", "latest")
 	ImageDigest string `json:"image_digest,omitempty"` // SHA256 digest (e.g., "sha256:abc123...")
-	ImageFull   string `json:"image_full"`             // Full reference (e.g., "pharmalytica/hermes-nonmem:nm76")
+	ImageFull   string `json:"image_full"`             // Full reference (e.g., "shairozan/hermes-nonmem:nm76")
 
 	// Container information
 	ContainerID string `json:"container_id,omitempty"` // Docker container ID (truncated)

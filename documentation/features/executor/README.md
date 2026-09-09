@@ -79,7 +79,7 @@ The executor searches for `.janus.config.json` using a 4-step heuristic:
 
 ```json
 {
-  "image": "pharmalytica/hermes-nonmem:nm76",
+  "image": "shairozan/hermes-nonmem:nm76",
   "container_command_path": "/opt/NONMEM/nm76/run/nmfe76",
   "resources": {
     "cpus": 4,

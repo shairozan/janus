@@ -17,7 +17,7 @@
 #      }
 #   2. Run: executor acop.mod acop.lst
 
-FROM ghcr.io/pharmalytica/hermes:main-trixie
+FROM ghcr.io/shairozan/hermes:main-trixie
 
 # Switch to root to install mock NONMEM (base image runs as hermes user)
 USER root

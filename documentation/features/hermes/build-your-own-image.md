@@ -19,7 +19,7 @@ Janus does not run NONMEM directly. It talks to a small gRPC **execution server*
 to base your image on the Hermes base image:
 
 ```dockerfile
-FROM ghcr.io/pharmalytica/hermes:main-trixie
+FROM ghcr.io/shairozan/hermes:main-trixie
 ```
 
 Everything else — your NONMEM tree, the run-script path, the discovery labels — layers

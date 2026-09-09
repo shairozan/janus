@@ -180,10 +180,10 @@ func TestREQ50_HermesExecutionOutputCapture(t *testing.T) {
 				ExecutionID: "exec-test-123",
 				ContainerID: "container-abc-456",
 				Image: runlog.ContainerImage{
-					Name:   "pharmalytica/hermes-nonmem",
+					Name:   "shairozan/hermes-nonmem",
 					Tag:    "nm76",
 					Digest: "sha256:abc123def456",
-					Full:   "pharmalytica/hermes-nonmem:nm76",
+					Full:   "shairozan/hermes-nonmem:nm76",
 				},
 				Resources: runlog.HermesResources{
 					CPUCores: 4,
@@ -256,15 +256,15 @@ func TestREQ51_HermesContainerImageProvenance(t *testing.T) {
 				{
 					name: "DockerHub with SHA256 digest",
 					image: runlog.ContainerImage{
-						Name:   "pharmalytica/hermes-nonmem",
+						Name:   "shairozan/hermes-nonmem",
 						Tag:    "nm76",
 						Digest: "sha256:abc123def456789",
-						Full:   "pharmalytica/hermes-nonmem:nm76",
+						Full:   "shairozan/hermes-nonmem:nm76",
 					},
-					expectedName:   "pharmalytica/hermes-nonmem",
+					expectedName:   "shairozan/hermes-nonmem",
 					expectedTag:    "nm76",
 					expectedDigest: "sha256:abc123def456789",
-					expectedFull:   "pharmalytica/hermes-nonmem:nm76",
+					expectedFull:   "shairozan/hermes-nonmem:nm76",
 				},
 				{
 					name: "GitHub Container Registry with digest",

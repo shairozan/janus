@@ -24,7 +24,7 @@
 
 # The Hermes base provides the execution server Janus communicates with.
 # Pin to a specific tag/digest for reproducible builds.
-FROM ghcr.io/pharmalytica/hermes:main-trixie
+FROM ghcr.io/shairozan/hermes:main-trixie
 
 # The base image runs as the unprivileged "hermes" user; switch to root to install.
 USER root

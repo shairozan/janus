@@ -14,7 +14,7 @@ func TestBuildPod(t *testing.T) {
 	pod, err := BuildPod(PodSpec{
 		Name:      "janus-run1",
 		Namespace: "janus",
-		Image:     "pharmalytica/hermes-nonmem:nm76",
+		Image:     "shairozan/hermes-nonmem:nm76",
 		Port:      50051,
 		CPUCores:  4,
 		Memory:    "8Gi",
@@ -30,7 +30,7 @@ func TestBuildPod(t *testing.T) {
 	require.Len(t, pod.Spec.Containers, 1)
 	c := pod.Spec.Containers[0]
 	assert.Equal(t, HermesContainerName, c.Name)
-	assert.Equal(t, "pharmalytica/hermes-nonmem:nm76", c.Image)
+	assert.Equal(t, "shairozan/hermes-nonmem:nm76", c.Image)
 	assert.Equal(t, []string{"serve"}, c.Args)
 
 	require.Len(t, c.Ports, 1)

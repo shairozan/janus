@@ -36,10 +36,10 @@ func TestRecordHermesExecution(t *testing.T) {
 		ExecutionID: "exec-abc123",
 		ContainerID: "container-xyz789",
 		Image: ContainerImage{
-			Name:   "pharmalytica/hermes-nonmem",
+			Name:   "shairozan/hermes-nonmem",
 			Tag:    "nm76",
 			Digest: "sha256:abc123def456",
-			Full:   "pharmalytica/hermes-nonmem:nm76",
+			Full:   "shairozan/hermes-nonmem:nm76",
 		},
 		Resources: HermesResources{
 			CPUCores: 4,
@@ -87,10 +87,10 @@ func TestRecordHermesExecution(t *testing.T) {
 	require.NotNil(t, entry.Hermes)
 	assert.Equal(t, "exec-abc123", entry.Hermes.ExecutionID)
 	assert.Equal(t, "container-xyz789", entry.Hermes.ContainerID)
-	assert.Equal(t, "pharmalytica/hermes-nonmem", entry.Hermes.Image.Name)
+	assert.Equal(t, "shairozan/hermes-nonmem", entry.Hermes.Image.Name)
 	assert.Equal(t, "nm76", entry.Hermes.Image.Tag)
 	assert.Equal(t, "sha256:abc123def456", entry.Hermes.Image.Digest)
-	assert.Equal(t, "pharmalytica/hermes-nonmem:nm76", entry.Hermes.Image.Full)
+	assert.Equal(t, "shairozan/hermes-nonmem:nm76", entry.Hermes.Image.Full)
 	assert.Equal(t, 4, entry.Hermes.Resources.CPUCores)
 	assert.Equal(t, "8Gi", entry.Hermes.Resources.Memory)
 	assert.Equal(t, "/path/to/.janus.config.json", entry.Hermes.ModelConfig)
@@ -154,15 +154,15 @@ func TestContainerImageProvenance(t *testing.T) {
 		{
 			name: "DockerHub with digest",
 			image: ContainerImage{
-				Name:   "pharmalytica/hermes-nonmem",
+				Name:   "shairozan/hermes-nonmem",
 				Tag:    "nm76",
 				Digest: "sha256:abc123",
-				Full:   "pharmalytica/hermes-nonmem:nm76",
+				Full:   "shairozan/hermes-nonmem:nm76",
 			},
-			expectedName:   "pharmalytica/hermes-nonmem",
+			expectedName:   "shairozan/hermes-nonmem",
 			expectedTag:    "nm76",
 			expectedDigest: "sha256:abc123",
-			expectedFull:   "pharmalytica/hermes-nonmem:nm76",
+			expectedFull:   "shairozan/hermes-nonmem:nm76",
 		},
 		{
 			name: "Private registry without digest",

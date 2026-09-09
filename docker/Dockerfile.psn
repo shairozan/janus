@@ -22,7 +22,7 @@
 # The PsN install below is the layer validated locally in #193 (docker/psn-spike.sh),
 # rebased onto the Hermes server base.
 
-ARG HERMES_BASE=ghcr.io/pharmalytica/hermes:main-trixie
+ARG HERMES_BASE=ghcr.io/shairozan/hermes:main-trixie
 FROM ${HERMES_BASE}
 
 # PsN release to install. Must be >= 4.6.0 (older scores crashed runs as 0, not

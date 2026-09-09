@@ -937,8 +937,8 @@ func (e *HermesExecutor) executeViaGRPC(ctx context.Context, command string, arg
 // parseImageReference parses a Docker image reference into name and tag.
 // Handles registry ports correctly by only splitting on the LAST colon.
 // Examples:
-//   - "pharmalytica/hermes-nonmem:nm76" -> ("pharmalytica/hermes-nonmem", "nm76")
-//   - "pharmalytica/hermes-nonmem" -> ("pharmalytica/hermes-nonmem", "latest")
+//   - "shairozan/hermes-nonmem:nm76" -> ("shairozan/hermes-nonmem", "nm76")
+//   - "shairozan/hermes-nonmem" -> ("shairozan/hermes-nonmem", "latest")
 //   - "nginx:1.21" -> ("nginx", "1.21")
 //   - "registry.com:5000/image:tag" -> ("registry.com:5000/image", "tag")
 //   - "localhost:5000/test:v1" -> ("localhost:5000/test", "v1")

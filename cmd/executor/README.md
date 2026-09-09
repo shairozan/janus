@@ -142,7 +142,7 @@ go test -v -run TestConfigDiscovery ./cmd/executor/
 ```bash
 cat > /tmp/test-model/.janus.config.json <<EOF
 {
-  "image": "pharmalytica/hermes-nonmem:nm76",
+  "image": "shairozan/hermes-nonmem:nm76",
   "license": {"path": "~/.config/janus/nonmem.lic"},
   "resources": {"cpus": "4", "memory": "8G"},
   "retain": ["*.lst", "*.ext", "*.tab"]
@@ -325,9 +325,9 @@ Error: no .janus.config.json found
 
 **Issue: Container not found**
 ```
-Error: image not found: pharmalytica/hermes-nonmem:nm76
+Error: image not found: shairozan/hermes-nonmem:nm76
 ```
-**Solution**: Pull container image: `docker pull pharmalytica/hermes-nonmem:nm76`
+**Solution**: Pull container image: `docker pull shairozan/hermes-nonmem:nm76`
 
 **Issue: Permission denied (Docker)**
 ```

@@ -42,17 +42,6 @@ func runInDevContainer(args ...string) error {
 	// Prepare docker run arguments
 	dockerArgs := []string{"run", "--rm", "-v", pwd + ":/workspace", "-w", "/workspace"}
 
-	// Pass through GitHub credentials for private repository access
-	if githubUser := os.Getenv("GITHUB_USER"); githubUser != "" {
-		dockerArgs = append(dockerArgs, "-e", "GITHUB_USER="+githubUser)
-	}
-	if githubToken := os.Getenv("GITHUB_TOKEN"); githubToken != "" {
-		dockerArgs = append(dockerArgs, "-e", "GITHUB_TOKEN="+githubToken)
-	}
-
-	// Set GOPRIVATE for private pharmalytica repos
-	dockerArgs = append(dockerArgs, "-e", "GOPRIVATE=github.com/shairozan/hermes")
-
 	// Add display for GUI tests if needed
 	for _, arg := range args {
 		if arg == "gui" {
@@ -180,18 +169,6 @@ func (Docker) BuildDev() error {
 
 	// Prepare build arguments
 	buildArgs := []string{"build", "-f", "docker/Dockerfile.dev", "-t", devDockerImage}
-
-	// Pass GitHub credentials as build arguments if available
-	githubUser := os.Getenv("GITHUB_USER")
-	githubToken := os.Getenv("GITHUB_TOKEN")
-
-	if githubUser != "" && githubToken != "" {
-		fmt.Println("🔐 Using GitHub credentials for private repository access...")
-		buildArgs = append(buildArgs, "--build-arg", "GITHUB_USER="+githubUser)
-		buildArgs = append(buildArgs, "--build-arg", "GITHUB_TOKEN="+githubToken)
-	} else {
-		fmt.Println("💡 Tip: Set GITHUB_USER and GITHUB_TOKEN environment variables to access private repositories")
-	}
 
 	buildArgs = append(buildArgs, ".")
 

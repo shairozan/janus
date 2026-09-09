@@ -54,10 +54,10 @@ type HermesMetadata struct {
 // ContainerImage represents complete container image provenance for audit trails.
 // Captures the exact image used for execution to ensure reproducibility.
 type ContainerImage struct {
-	Name   string `json:"name"`             // Image name without tag (e.g., "pharmalytica/hermes-nonmem")
+	Name   string `json:"name"`             // Image name without tag (e.g., "shairozan/hermes-nonmem")
 	Tag    string `json:"tag"`              // Image tag (e.g., "nm76", "latest")
 	Digest string `json:"digest,omitempty"` // SHA256 digest (e.g., "sha256:abc123...")
-	Full   string `json:"full"`             // Full reference (e.g., "pharmalytica/hermes-nonmem:nm76")
+	Full   string `json:"full"`             // Full reference (e.g., "shairozan/hermes-nonmem:nm76")
 }
 
 // HermesResources represents the resource configuration used for Hermes execution.

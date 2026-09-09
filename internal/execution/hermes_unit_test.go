@@ -269,7 +269,7 @@ func TestNewHermesExecutor(t *testing.T) {
 		cfg.RunLogEnabled = false
 
 		modelConfig := &config.HermesModelConfig{
-			Image: "pharmalytica/hermes-nonmem:nm76",
+			Image: "shairozan/hermes-nonmem:nm76",
 			Resources: config.ResourceConfig{
 				CPUCores: 4,
 				Memory:   "8Gi",
@@ -290,7 +290,7 @@ func TestNewHermesExecutor(t *testing.T) {
 
 	t.Run("Accepts nil config (standalone executor mode)", func(t *testing.T) {
 		modelConfig := &config.HermesModelConfig{
-			Image: "pharmalytica/hermes-nonmem:nm76",
+			Image: "shairozan/hermes-nonmem:nm76",
 			Resources: config.ResourceConfig{
 				CPUCores: 4,
 				Memory:   "8Gi",

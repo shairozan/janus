@@ -177,7 +177,7 @@ hermes:
     docker-socket: "unix:///var/run/docker.sock"
     startup-timeout: "30s"
     cleanup: true
-    image: "ghcr.io/pharmalytica/hermes:latest"
+    image: "ghcr.io/shairozan/hermes:latest"
 
 # Trial-specific: license on desktop
 nonmem-license: "/home/kasm-user/Desktop/nonmem.lic"
@@ -216,7 +216,7 @@ RUN chmod +x /home/kasm-user/Desktop/janus.desktop && \
 
 # Pre-pull Hermes image (so first execution is fast)
 # This requires Docker socket at build time OR we pull at runtime
-# For now, document that host should pre-pull: docker pull ghcr.io/pharmalytica/hermes:latest
+# For now, document that host should pre-pull: docker pull ghcr.io/shairozan/hermes:latest
 
 USER kasm-user
 
@@ -660,7 +660,7 @@ func main() {
 chmod 666 /var/run/docker.sock  # Or use docker group
 
 # Pre-pull Hermes image so trial containers can use it immediately
-docker pull ghcr.io/pharmalytica/hermes:latest
+docker pull ghcr.io/shairozan/hermes:latest
 ```
 
 **Container Configuration**:
