@@ -1037,6 +1037,13 @@ Full details, including key rotation and moving a key between machines, are in
 
 ---
 
+## Releasing
+
+Tagging `v*` builds all six targets and publishes a GitHub release, with signed
+and notarized macOS packages when the Apple secrets are configured. The signing
+steps degrade to a warning rather than failing, so a fork can cut releases too.
+See [documentation/releasing.md](documentation/releasing.md).
+
 ## Contributing
 
 Contributions are welcome — particularly from people who actually run models and

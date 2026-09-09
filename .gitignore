@@ -141,9 +141,13 @@ validation_auditor_report.json
 validation_technical_report.json
 audit.jsonl
 
-# License keys (should never be committed)
-.license_public_key.pem
-*license_public_key.pem
+# Key material — never commit any of this.
+# Signing keys, code-signing certificates and the App Store Connect key all live
+# outside the repository; see documentation/releasing.md.
 *.pem
-
-testdata/.acop.settings.grid.json.license_public_key.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.p8
+*.csr
