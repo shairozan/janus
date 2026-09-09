@@ -17,7 +17,7 @@ package pirana
 import (
 	"errors"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // ErrNotFound indicates no Pirana configuration could be located on this machine.

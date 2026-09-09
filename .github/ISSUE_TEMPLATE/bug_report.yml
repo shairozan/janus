@@ -1,0 +1,54 @@
+name: Bug report
+description: Something Janus does that it should not
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security vulnerabilities here — see [SECURITY.md](../blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: |
+        The exact steps. A model file that triggers it helps enormously — strip any
+        proprietary data first.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Janus version
+      description: Output of `janus version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Linux, macOS, Windows]
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Execution mode
+      description: The `execution-mode` in your config.
+      options: [NONMEM, PSN, BBI, HERMES, "not sure"]
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or error output
+      description: |
+        Paste the error. If it is long, the last 50 lines are usually enough.
+        Check it for anything confidential before posting.
+      render: shell

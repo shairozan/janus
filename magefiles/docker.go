@@ -42,17 +42,6 @@ func runInDevContainer(args ...string) error {
 	// Prepare docker run arguments
 	dockerArgs := []string{"run", "--rm", "-v", pwd + ":/workspace", "-w", "/workspace"}
 
-	// Pass through GitHub credentials for private repository access
-	if githubUser := os.Getenv("GITHUB_USER"); githubUser != "" {
-		dockerArgs = append(dockerArgs, "-e", "GITHUB_USER="+githubUser)
-	}
-	if githubToken := os.Getenv("GITHUB_TOKEN"); githubToken != "" {
-		dockerArgs = append(dockerArgs, "-e", "GITHUB_TOKEN="+githubToken)
-	}
-
-	// Set GOPRIVATE for private pharmalytica repos
-	dockerArgs = append(dockerArgs, "-e", "GOPRIVATE=github.com/pharmalytica/hermes")
-
 	// Add display for GUI tests if needed
 	for _, arg := range args {
 		if arg == "gui" {
@@ -180,18 +169,6 @@ func (Docker) BuildDev() error {
 
 	// Prepare build arguments
 	buildArgs := []string{"build", "-f", "docker/Dockerfile.dev", "-t", devDockerImage}
-
-	// Pass GitHub credentials as build arguments if available
-	githubUser := os.Getenv("GITHUB_USER")
-	githubToken := os.Getenv("GITHUB_TOKEN")
-
-	if githubUser != "" && githubToken != "" {
-		fmt.Println("🔐 Using GitHub credentials for private repository access...")
-		buildArgs = append(buildArgs, "--build-arg", "GITHUB_USER="+githubUser)
-		buildArgs = append(buildArgs, "--build-arg", "GITHUB_TOKEN="+githubToken)
-	} else {
-		fmt.Println("💡 Tip: Set GITHUB_USER and GITHUB_TOKEN environment variables to access private repositories")
-	}
 
 	buildArgs = append(buildArgs, ".")
 
@@ -331,111 +308,3 @@ func (Docker) Package(version string, ubuntuVersion string) error {
 		"mage", "package", version, targetUbuntu)
 }
 
-// LicenseBuild builds the license-server binary using the development Docker image
-func (Docker) LicenseBuild() error {
-	fmt.Println("🐳 Building license-server using development Docker image...")
-	return runInDevContainer("mage", "license:build")
-}
-
-// LicenseTest runs license-server tests using the development Docker image
-func (Docker) LicenseTest() error {
-	fmt.Println("🐳 Running license-server tests using development Docker image...")
-	return runInDevContainer("mage", "license:test")
-}
-
-// LicenseUnit runs license-server unit tests using the development Docker image
-func (Docker) LicenseUnit() error {
-	fmt.Println("🐳 Running license-server unit tests using development Docker image...")
-	return runInDevContainer("go", "test", "-v", "-race", "-tags=unit", "./internal/license/...", "./cmd/license-server/...")
-}
-
-// LicenseIntegration runs license-server integration tests using the development Docker image
-func (Docker) LicenseIntegration() error {
-	fmt.Println("🐳 Running license-server integration tests using development Docker image...")
-	fmt.Println("⚠️  Starting PostgreSQL container for integration tests...")
-
-	// Start PostgreSQL using docker compose
-	if err := sh.RunV("docker", "compose", "--profile", "dev", "up", "-d", "postgres"); err != nil {
-		return fmt.Errorf("failed to start PostgreSQL: %w", err)
-	}
-
-	// Wait for PostgreSQL to be healthy
-	fmt.Println("⏳ Waiting for PostgreSQL to be ready...")
-	if err := sh.RunV("docker", "compose", "exec", "-T", "postgres", "pg_isready", "-U", "janus", "-d", "janus_license"); err != nil {
-		return fmt.Errorf("PostgreSQL health check failed: %w", err)
-	}
-
-	// Get PostgreSQL container network name
-	pgNetwork := "janus_default" // docker-compose creates this network by default
-	dbURL := "postgres://janus:janus_dev_password@postgres:5432/janus_license?sslmode=disable"
-
-	// Run database migrations
-	fmt.Println("🔧 Running database migrations...")
-	migrateArgs := []string{
-		"run", "--rm",
-		"--network", pgNetwork,
-		"-v", getCurrentDir() + ":/workspace",
-		"-w", "/workspace",
-		devDockerImage,
-		"go", "run", "./cmd/license-server", "migrate", "up",
-		"--database-url", dbURL,
-	}
-	if err := sh.RunV("docker", migrateArgs...); err != nil {
-		return fmt.Errorf("database migration failed: %w", err)
-	}
-
-	// Run integration tests with database URL
-	fmt.Println("🧪 Running integration tests...")
-	testArgs := []string{
-		"run", "--rm",
-		"--network", pgNetwork,
-		"-v", getCurrentDir() + ":/workspace",
-		"-w", "/workspace",
-		"-e", "LICENSING_DATABASE_URL=" + dbURL,
-		"-e", "LICENSING_ENCRYPTION_KEY=Wp7G9y+RHAu2QYivFK9jOWZKRs+p7J6Y",
-		devDockerImage,
-		"go", "test", "-v", "-timeout", "60s", "-tags=integration,server",
-		"./internal/license/...", "./cmd/license-server/...",
-	}
-	err := sh.RunV("docker", testArgs...)
-
-	// Stop PostgreSQL after tests
-	fmt.Println("🧹 Stopping PostgreSQL container...")
-	if stopErr := sh.RunV("docker", "compose", "--profile", "dev", "down"); stopErr != nil {
-		fmt.Printf("⚠️  Warning: Failed to stop PostgreSQL: %v\n", stopErr)
-	}
-
-	return err
-}
-
-// LicenseCheck runs format, lint, and unit tests for license-server
-func (Docker) LicenseCheck() error {
-	fmt.Println("🐳 Running license-server checks using development Docker image...")
-	return runInDevContainer("mage", "license:check")
-}
-
-// LicenseCheckAll runs format, lint, unit tests, and build for license-server
-func (Docker) LicenseCheckAll() error {
-	fmt.Println("🐳 Running complete license-server validation using development Docker image...")
-	return runInDevContainer("mage", "license:checkall")
-}
-
-// LicenseRelease builds a release version of license-server in Docker
-func (Docker) LicenseRelease(version string) error {
-	if version == "" {
-		return fmt.Errorf("version is required (e.g., mage docker:licenseRelease v1.0.0)")
-	}
-
-	fmt.Printf("🐳 Building license-server release %s in Docker...\n", version)
-
-	pwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	return sh.RunV("docker", "run", "--rm",
-		"-v", pwd+":/workspace",
-		"-w", "/workspace",
-		dockerImage,
-		"mage", "license:release", version)
-}

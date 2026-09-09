@@ -7,7 +7,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pharmalytica/janus/internal/modelmeta"
+	"github.com/shairozan/janus/internal/modelmeta"
 )
 
 func TestStatusImportance(t *testing.T) {

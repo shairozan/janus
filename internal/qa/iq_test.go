@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // newRunDir builds a configDir/qa/<uuid> layout under a temp dir and returns the

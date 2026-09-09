@@ -12,11 +12,11 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/gui/editor"
-	"github.com/pharmalytica/janus/internal/inheritance"
-	"github.com/pharmalytica/janus/internal/model"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/gui/editor"
+	"github.com/shairozan/janus/internal/inheritance"
+	"github.com/shairozan/janus/internal/model"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // showInheritParametersDialog displays the parameter inheritance dialog.

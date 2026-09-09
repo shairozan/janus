@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 func TestMostRecentModelFile(t *testing.T) {

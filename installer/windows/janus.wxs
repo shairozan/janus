@@ -4,7 +4,7 @@
   <?include variables.wxi ?>
 
   <Package Name="Janus"
-           Manufacturer="Pharmalytica"
+           Manufacturer="shairozan"
            Version="$(var.Version)"
            UpgradeCode="8B7C5E3F-9A2D-4F1B-B8C6-3E7A9D2F5C8B"
            Language="1033"
@@ -48,7 +48,7 @@
                        System="no" />
 
           <!-- Registry key for installation path tracking -->
-          <RegistryKey Root="HKCU" Key="SOFTWARE\Pharmalytica\Janus">
+          <RegistryKey Root="HKCU" Key="SOFTWARE\shairozan\Janus">
             <RegistryValue Name="InstallPath" Type="string" Value="[INSTALLFOLDER]" />
             <RegistryValue Name="Version" Type="string" Value="$(var.Version)" />
           </RegistryKey>
@@ -92,7 +92,7 @@
                     Icon="JanusIcon" />
           <RemoveFolder Id="CleanupStartMenu" On="uninstall" />
           <RegistryValue Root="HKCU"
-                        Key="Software\Pharmalytica\Janus"
+                        Key="Software\shairozan\Janus"
                         Name="StartMenuShortcut"
                         Type="integer"
                         Value="1"
@@ -109,7 +109,7 @@
         </Extension>
       </ProgId>
       <RegistryValue Root="HKCU"
-                     Key="Software\Pharmalytica\Janus"
+                     Key="Software\shairozan\Janus"
                      Name="FileAssoc_mod"
                      Type="integer"
                      Value="1"
@@ -124,7 +124,7 @@
         </Extension>
       </ProgId>
       <RegistryValue Root="HKCU"
-                     Key="Software\Pharmalytica\Janus"
+                     Key="Software\shairozan\Janus"
                      Name="FileAssoc_ctl"
                      Type="integer"
                      Value="1"
@@ -139,7 +139,7 @@
         </Extension>
       </ProgId>
       <RegistryValue Root="HKCU"
-                     Key="Software\Pharmalytica\Janus"
+                     Key="Software\shairozan\Janus"
                      Name="FileAssoc_nmctl"
                      Type="integer"
                      Value="1"

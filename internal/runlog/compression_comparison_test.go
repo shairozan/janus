@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // TestFullCompressionComparison compares compressed vs uncompressed audit trail sizes.

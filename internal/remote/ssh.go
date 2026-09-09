@@ -14,8 +14,8 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/scheduler"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/scheduler"
 )
 
 // sshTimeout bounds connection establishment and each remote command.

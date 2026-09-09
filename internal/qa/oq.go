@@ -10,9 +10,9 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution"
-	"github.com/pharmalytica/janus/internal/summary"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution"
+	"github.com/shairozan/janus/internal/summary"
 )
 
 const (

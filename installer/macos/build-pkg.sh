@@ -102,8 +102,13 @@ cp "$EXECUTOR_SOURCE" "$PKG_ROOT/usr/local/bin/executor"
 chmod +x "$PKG_ROOT/usr/local/bin/janus"
 chmod +x "$PKG_ROOT/usr/local/bin/executor"
 
-# Code sign binaries if certificate is available
-if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
+# Code sign binaries if the identity is present in the keychain.
+#
+# Gate on the identity rather than on an env var: whoever set up the keychain —
+# CI, or you locally — is the one who knows whether signing is possible, and an
+# env var that merely claims a certificate exists can silently be wrong. Getting
+# this backwards produces an unsigned package while every step reports success.
+if security find-identity -v 2>/dev/null | grep -q "$APPLICATION_CERT_NAME"; then
     echo "🔐 Code signing binaries with Apple Developer ID..."
 
     # Check if the Application signing identity is available
@@ -142,7 +147,7 @@ if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
         echo "Binaries will not be signed. Notarization may fail."
     fi
 else
-    echo "ℹ️  No certificate provided (APPLE_CERTIFICATE_BASE64 not set)"
+    echo "ℹ️  No Developer ID Application identity in the keychain - binaries will not be signed"
     echo "Binaries will not be signed."
 fi
 echo ""
@@ -185,7 +190,7 @@ COMPONENT_PKG="$BUILD_DIR/janus-component.pkg"
 pkgbuild \
     --root "$PKG_ROOT" \
     --scripts "$SCRIPTS_DIR" \
-    --identifier "com.pharmalytica.janus" \
+    --identifier "io.github.shairozan.janus" \
     --version "$VERSION" \
     --install-location "/" \
     "$COMPONENT_PKG"
@@ -205,7 +210,7 @@ cat > "$DISTRIBUTION_XML" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
     <title>Janus</title>
-    <organization>com.pharmalytica</organization>
+    <organization>io.github.shairozan</organization>
     <domains enable_localSystem="true"/>
     <options customize="never" require-scripts="false" hostArchitectures="$PKG_ARCH"/>
 
@@ -217,16 +222,16 @@ cat > "$DISTRIBUTION_XML" <<EOF
     <!-- Define the installer choices -->
     <choices-outline>
         <line choice="default">
-            <line choice="com.pharmalytica.janus"/>
+            <line choice="io.github.shairozan.janus"/>
         </line>
     </choices-outline>
 
     <choice id="default"/>
-    <choice id="com.pharmalytica.janus" visible="false">
-        <pkg-ref id="com.pharmalytica.janus"/>
+    <choice id="io.github.shairozan.janus" visible="false">
+        <pkg-ref id="io.github.shairozan.janus"/>
     </choice>
 
-    <pkg-ref id="com.pharmalytica.janus" version="$VERSION" onConclusion="none">janus-component.pkg</pkg-ref>
+    <pkg-ref id="io.github.shairozan.janus" version="$VERSION" onConclusion="none">janus-component.pkg</pkg-ref>
 
 </installer-gui-script>
 EOF
@@ -264,7 +269,7 @@ if [ -f "$REPO_ROOT/LICENSE" ]; then
 elif [ -f "$REPO_ROOT/LICENSE.md" ]; then
     cp "$REPO_ROOT/LICENSE.md" "$BUILD_DIR/license.txt"
 else
-    echo "Copyright (c) Pharmalytica" > "$BUILD_DIR/license.txt"
+    echo "See https://github.com/shairozan/janus for license terms." > "$BUILD_DIR/license.txt"
 fi
 
 # Create conclusion message
@@ -289,7 +294,7 @@ cat > "$BUILD_DIR/conclusion.html" <<EOF
         <li><code>executor</code> - Command-line executor for grid systems</li>
     </ul>
     <p>You can launch Janus by running <code>janus</code> from the Terminal.</p>
-    <p>For more information, visit the <a href="https://github.com/pharmalytica/janus">Janus GitHub repository</a>.</p>
+    <p>For more information, visit the <a href="https://github.com/shairozan/janus">Janus GitHub repository</a>.</p>
 </body>
 </html>
 EOF
@@ -312,7 +317,7 @@ fi
 echo "✅ Product package created"
 
 # Sign the package if certificate is available
-if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
+if security find-identity -v 2>/dev/null | grep -q "$INSTALLER_CERT_NAME"; then
     echo "🔐 Attempting to sign package with Apple Developer ID..."
     echo "Looking for identity: $INSTALLER_CERT_NAME"
 
@@ -342,11 +347,11 @@ if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
         echo "Available identities:"
         security find-identity -v || echo "  (none)"
         echo ""
-        echo "Certificate import may have failed. Check APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD."
+        echo "Certificate import may have failed. Check APPLE_CERTIFICATE_P12 and APPLE_CERTIFICATE_PASSWORD."
         exit 1
     fi
 else
-    echo "ℹ️  No certificate provided (APPLE_CERTIFICATE_BASE64 not set), creating unsigned package"
+    echo "ℹ️  No Developer ID Installer identity in the keychain - creating an unsigned package"
     cp "$UNSIGNED_PKG" "$PKG_PATH"
 fi
 

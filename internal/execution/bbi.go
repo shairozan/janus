@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // BBIExecutor implements BBI-based execution.

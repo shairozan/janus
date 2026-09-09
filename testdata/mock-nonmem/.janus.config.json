@@ -1,6 +1,6 @@
 {
   "hermes": {
-    "image": "ghcr.io/pharmalytica/nonmem-hermes:760",
+    "image": "your-registry/nonmem-hermes:760",
     "resources": {
       "cpu_cores": 1,
       "memory": "1Gi"

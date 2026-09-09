@@ -9,13 +9,17 @@ import (
 type ExecutorFlags struct {
 	HermesConfig string // Explicit config path via --executor-hermes-config
 	JanusConfig  string // Janus config path via --executor-janus-config
-	License      string // License file path via --executor-license
 	Quiet        bool   // Suppress streaming via --executor-quiet
 	Help         bool   // Show executor help via --executor-help
 	Version      bool   // Show executor version via --executor-version
 	NoRunlog     bool   // Skip runlog update via --executor-no-runlog
 	RunIQ        bool   // Run Installation Qualification via --executor-run-iq
 	RunOQ        bool   // Run Operational Qualification via --executor-run-oq
+
+	// RetiredLicense records that --executor-license was passed. Janus no longer
+	// uses a license; the flag is accepted and ignored so that existing wrapper
+	// scripts keep working, and main warns once rather than failing.
+	RetiredLicense bool
 }
 
 // parseExecutorFlags separates executor-specific flags from container arguments.
@@ -45,15 +49,19 @@ func parseExecutorFlags(args []string) (ExecutorFlags, []string) {
 		case arg == "--executor-run-oq":
 			flags.RunOQ = true
 
-		// --executor-license with = syntax
+		// Retired: Janus no longer requires a license. Still consumed here, with
+		// its value, so it cannot reach the container. Letting it fall through to
+		// the default branch would forward "--executor-license" to nmfe as a
+		// control-stream filename and displace the real model path, turning a
+		// removed flag into an opaque NONMEM failure for anyone whose wrapper
+		// script still passes it.
 		case strings.HasPrefix(arg, "--executor-license="):
-			flags.License = strings.TrimPrefix(arg, "--executor-license=")
-
-		// --executor-license with separate argument
+			flags.RetiredLicense = true
 		case arg == "--executor-license":
-			if i+1 < len(args) {
-				flags.License = args[i+1]
-				i++ // Skip next arg (it's the value)
+			flags.RetiredLicense = true
+
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++ // consume its value too
 			}
 
 		// --executor-hermes-config with = syntax

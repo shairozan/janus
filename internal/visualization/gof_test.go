@@ -3,7 +3,7 @@ package visualization
 import (
 	"testing"
 
-	"github.com/pharmalytica/janus/internal/tables"
+	"github.com/shairozan/janus/internal/tables"
 )
 
 func makeTestGOFData() *tables.GOFData {

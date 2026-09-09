@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // Client represents a SLURM client that can operate in either CLI or REST mode.

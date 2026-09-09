@@ -6,7 +6,7 @@ import (
 
 	"fyne.io/fyne/v2/test"
 
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 func TestNewFileViewerDialog(t *testing.T) {

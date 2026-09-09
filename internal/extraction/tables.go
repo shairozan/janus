@@ -8,9 +8,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pharmalytica/janus/internal/model"
-	"github.com/pharmalytica/janus/internal/runlog"
-	"github.com/pharmalytica/janus/internal/tables"
+	"github.com/shairozan/janus/internal/model"
+	"github.com/shairozan/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/tables"
 )
 
 // ExtractTableDiagnostics extracts diagnostic data from NONMEM output tables.

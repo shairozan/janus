@@ -2,7 +2,7 @@
 
 ## Why you need to build your own
 
-NONMEM is licensed software. Pharmalytica **cannot distribute container images that
+NONMEM is licensed software. This project **cannot distribute container images that
 contain NONMEM or a NONMEM license**. What we *can* give you is a common, supported
 recipe: extend the Hermes base image with your own licensed NONMEM installation, push
 the result to a registry **you** control, and point Janus at it.
@@ -19,7 +19,7 @@ Janus does not run NONMEM directly. It talks to a small gRPC **execution server*
 to base your image on the Hermes base image:
 
 ```dockerfile
-FROM ghcr.io/pharmalytica/hermes:main-trixie
+FROM ghcr.io/shairozan/hermes:main-trixie
 ```
 
 Everything else — your NONMEM tree, the run-script path, the discovery labels — layers
@@ -37,7 +37,7 @@ on top. See the template for the full file.
    ```bash
    docker push my.registry/nonmem:7.5.1
    ```
-   If the registry is private, see [`DOCKER_PRIVATE_REPOS.md`](../../DOCKER_PRIVATE_REPOS.md)
+   If the registry is private, authenticate with `docker login <registry>` first.
    for authentication.
 4. **Point Janus at it** (next section).
 
@@ -48,18 +48,18 @@ selector. For your image to be discovered it **must** carry these two labels:
 
 | Label | Required value | Purpose |
 |-------|----------------|---------|
-| `io.pharmalytica.janus.type` | `executor` | Marks the image as a Janus executor |
-| `io.pharmalytica.janus.platform` | `nonmem` | Identifies the platform |
+| `io.github.shairozan.janus.type` | `executor` | Marks the image as a Janus executor |
+| `io.github.shairozan.janus.platform` | `nonmem` | Identifies the platform |
 
 These labels improve the experience but are optional:
 
 | Label | Purpose |
 |-------|---------|
-| `io.pharmalytica.janus.display-name` | Friendly name shown in the selector |
-| `io.pharmalytica.janus.description` | Description shown in the selector |
-| `io.pharmalytica.janus.container_command` | Auto-fills the command path in the dialog |
-| `io.pharmalytica.janus.version` / `…min-janus-version` | Version metadata |
-| `io.pharmalytica.nonmem.version` / `…compiler` / `…compiler-version` | NONMEM build metadata |
+| `io.github.shairozan.janus.display-name` | Friendly name shown in the selector |
+| `io.github.shairozan.janus.description` | Description shown in the selector |
+| `io.github.shairozan.janus.container_command` | Auto-fills the command path in the dialog |
+| `io.github.shairozan.janus.version` / `…min-janus-version` | Version metadata |
+| `io.github.shairozan.nonmem.version` / `…compiler` / `…compiler-version` | NONMEM build metadata |
 
 (The canonical list lives in `internal/container/types.go`.) You can always type any
 image reference into the selector by hand instead of relying on discovery.
@@ -84,7 +84,7 @@ image and the command to run inside it:
 
 - `image` — the tag you pushed in step 3.
 - `container_command_path` — the in-container path to the NONMEM run script (the same
-  value as the `io.pharmalytica.janus.container_command` label). Adjust the
+  value as the `io.github.shairozan.janus.container_command` label). Adjust the
   `nm75/nmfe75` portion to your NONMEM version.
 - `resources` — CPU/memory for the container (`cpu_cores` is a positive integer;
   `memory` uses forms like `8Gi`, `2048Mi`, `1G`). The schema is defined in

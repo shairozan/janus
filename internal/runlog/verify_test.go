@@ -30,7 +30,7 @@ func sealN(t *testing.T, store *RunLogStore, n int) []*RunRecord {
 
 func TestIntactChainVerifies(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	sealN(t, store, 5)
@@ -47,7 +47,7 @@ func TestIntactChainVerifies(t *testing.T) {
 // Johnny accidentally deletes a run in the middle of the log.
 func TestMiddleDeletionIsDetectedAndLocated(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 5)
@@ -77,7 +77,7 @@ func TestMiddleDeletionIsDetectedAndLocated(t *testing.T) {
 // Johnny deletes the newest runs. A pure hash chain cannot see this — the head can.
 func TestTailTruncationIsDetectedByTheHead(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 5)
@@ -101,7 +101,7 @@ func TestTailTruncationIsDetectedByTheHead(t *testing.T) {
 // record left the log cheerfully reporting "chain and tip verified".
 func TestTipRecordModificationIsDetected(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 3)
@@ -159,7 +159,7 @@ func TestUntrustedHeadIsNotAnIntegrityBreak(t *testing.T) {
 	// A trust store holding a DIFFERENT key: Bob's, or Alice's own key after a
 	// rotation — the two are indistinguishable, and neither is tampering.
 	_, otherPublicKey := generateTestKeyPair(t)
-	otherTrust, err := NewLicenseTrust(encodePublicKeyPEM(t, otherPublicKey), "bob@example.com")
+	otherTrust, err := singleKeyTrust(encodePublicKeyPEM(t, otherPublicKey), "bob@example.com")
 	require.NoError(t, err)
 
 	sealN(t, store, 3)
@@ -197,7 +197,7 @@ func TestSummaryNamesTheMissingSequence(t *testing.T) {
 // intact chain.
 func TestDuplicateSequenceIsDetected(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 3)
@@ -236,7 +236,7 @@ func TestDuplicateSequenceIsDetected(t *testing.T) {
 // empty. It passes only because SealedRecords now globs the directory.
 func TestDuplicateIsDetectedWithoutRebuildingTheIndex(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 3)
@@ -282,7 +282,7 @@ func TestDuplicateIsDetectedWithoutRebuildingTheIndex(t *testing.T) {
 // pass unnoticed.
 func TestInsertedForeignSealedRecordIsDetected(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	sealN(t, store, 3)
@@ -322,7 +322,7 @@ func TestInsertedForeignSealedRecordIsDetected(t *testing.T) {
 // which are supposed to run contiguously 1..N.
 func TestDeletionStillDetectedAfterEnumerationChange(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 5)

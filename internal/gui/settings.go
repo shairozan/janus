@@ -18,12 +18,12 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/pirana"
-	"github.com/pharmalytica/janus/internal/qa"
-	"github.com/pharmalytica/janus/internal/qarun"
-	"github.com/pharmalytica/janus/internal/scheduler"
-	"github.com/pharmalytica/janus/internal/summary"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/pirana"
+	"github.com/shairozan/janus/internal/qa"
+	"github.com/shairozan/janus/internal/qarun"
+	"github.com/shairozan/janus/internal/scheduler"
+	"github.com/shairozan/janus/internal/summary"
 )
 
 // SettingsDialog represents the configuration settings editor dialog.
@@ -376,7 +376,7 @@ func (s *SettingsDialog) buildForm() *fyne.Container {
 	// pods (no NONMEM license needed). A per-model .janus.config.json psn_image
 	// overrides it; the fits run on the per-model execution image above.
 	s.hermesPsnImageEntry = widget.NewEntry()
-	s.hermesPsnImageEntry.SetPlaceHolder("PsN image for bootstrap (e.g. ghcr.io/pharmalytica/janus-psn:5.7.1)")
+	s.hermesPsnImageEntry.SetPlaceHolder("PsN image for bootstrap (e.g. ghcr.io/shairozan/janus-psn:5.7.1)")
 	s.hermesPsnImageEntry.SetText(s.app.config.Hermes.PsNImage)
 	s.originalValues["hermes-psn-image"] = s.app.config.Hermes.PsNImage
 

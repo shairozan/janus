@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // fakeStageRunner records every stage it is asked to run and returns scripted

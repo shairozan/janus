@@ -19,8 +19,8 @@ Implement automatic discovery of Janus-compatible Docker images for the Hermes e
   - [ ] Query local Docker daemon for images
   - [ ] Extract labels from image metadata
 - [ ] Implement filtering logic
-  - [ ] Filter by `io.pharmalytica.janus.type` = "executor"
-  - [ ] Filter by `io.pharmalytica.janus.platform` = "nonmem"
+  - [ ] Filter by `io.github.shairozan.janus.type` = "executor"
+  - [ ] Filter by `io.github.shairozan.janus.platform` = "nonmem"
   - [ ] Parse and extract display metadata from labels
 - [ ] Handle error cases
   - [ ] Docker daemon not running
@@ -109,8 +109,8 @@ Implement automatic discovery of Janus-compatible Docker images for the Hermes e
 **Goal**: Auto-populate the "Command Path" field when user selects a discovered image.
 
 **Container Image Work (external to Janus):**
-- [ ] Add new label to container images: `io.pharmalytica.janus.container_command`
-  - Example: `LABEL io.pharmalytica.janus.container_command="/opt/NONMEM/nm75/run/nmfe75"`
+- [ ] Add new label to container images: `io.github.shairozan.janus.container_command`
+  - Example: `LABEL io.github.shairozan.janus.container_command="/opt/NONMEM/nm75/run/nmfe75"`
 
 **Janus Work:**
 - [ ] Add `LabelContainerCommand` constant to `internal/container/types.go`

@@ -169,7 +169,7 @@ func Command() *cobra.Command {
 
 5. **Registry Keys**:
    ```
-   HKEY_LOCAL_MACHINE\SOFTWARE\Pharmalytica\Janus
+   HKEY_LOCAL_MACHINE\SOFTWARE\shairozan\Janus
      InstallPath: C:\Program Files\Janus
      Version: 0.2.0
 
@@ -192,7 +192,7 @@ func Command() *cobra.Command {
            Name="Janus"
            Language="1033"
            Version="0.2.0"
-           Manufacturer="Pharmalytica"
+           Manufacturer="shairozan"
            UpgradeCode="YOUR-GUID-HERE">
 
     <Package InstallerVersion="200"
@@ -235,7 +235,7 @@ func Command() *cobra.Command {
                       WorkingDirectory="INSTALLFOLDER" />
             <RemoveFolder Id="CleanupStartMenu" On="uninstall" />
             <RegistryValue Root="HKCU"
-                          Key="Software\Pharmalytica\Janus"
+                          Key="Software\shairozan\Janus"
                           Name="StartMenuShortcut"
                           Type="integer"
                           Value="1"
@@ -324,7 +324,7 @@ Version: 0.2.0
 Section: science
 Priority: optional
 Architecture: amd64
-Maintainer: Pharmalytica <support@pharmalytica.com>
+Maintainer: shairozan <noreply@github.com>
 Description: Pharmacometric modeling GUI
  Janus is a GUI replacement for Certara Pirana, providing model execution,
  tracking, and validation for NONMEM and other pharmacometric platforms.
@@ -332,7 +332,7 @@ Description: Pharmacometric modeling GUI
  Features include local and remote execution, grid scheduler integration,
  execution run logs, and self-validating state (IQ/OQ).
 Depends: libc6 (>= 2.31)
-Homepage: https://github.com/pharmalytica/janus
+Homepage: https://github.com/shairozan/janus
 ```
 
 **usr/share/applications/janus.desktop**:
@@ -865,4 +865,4 @@ test-installer-linux.sh
 - FreeDesktop.org Shared MIME Info: https://specifications.freedesktop.org/shared-mime-info-spec/
 - Cobra CLI Framework: https://github.com/spf13/cobra
 - Fyne GUI Toolkit: https://fyne.io/
-- Current CLI implementation: [cmd/janus/root.go](../../cmd/janus/root.go)
+- Current CLI implementation: [cmd/janus/root.go](../../../../../cmd/root.go)

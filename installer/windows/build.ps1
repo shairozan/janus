@@ -76,7 +76,7 @@ if (Test-Path "../../dist/windows/janus.exe") {
     # Note: CI uses fyne package for additional metadata embedding, but for local builds
     # the binary built with -H windowsgui is sufficient and works correctly
     Write-Host "Building binary with ldflags..." -ForegroundColor Cyan
-    go build -o "dist/windows/janus.exe" -ldflags "-H windowsgui -s -w -X github.com/pharmalytica/janus/internal/version.Version=$Version" .
+    go build -o "dist/windows/janus.exe" -ldflags "-H windowsgui -s -w -X github.com/shairozan/janus/internal/version.Version=$Version" .
     if ($LASTEXITCODE -ne 0) {
         Pop-Location
         throw "Go build failed"

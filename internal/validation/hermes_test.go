@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // TestREQ47_HermesModelConfigurationFile validates REQ-47: Hermes execution shall pull configuration from a .janus.config.json file.
@@ -31,7 +31,7 @@ func TestREQ47_HermesModelConfigurationFile(t *testing.T) {
 
 			// Create a valid config file
 			validConfig := `{
-				"image": "ghcr.io/pharmalytica/nonmem:7.5.0",
+				"image": "your-registry/nonmem:7.5.0",
 				"resources": {
 					"cpu_cores": 4,
 					"memory": "8Gi"
@@ -46,7 +46,7 @@ func TestREQ47_HermesModelConfigurationFile(t *testing.T) {
 
 			require.NoError(t, err, "Should be able to load Hermes model config")
 			require.NotNil(t, cfg, "Config should not be nil")
-			assert.Equal(t, "ghcr.io/pharmalytica/nonmem:7.5.0", cfg.Image, "Image should match config file")
+			assert.Equal(t, "your-registry/nonmem:7.5.0", cfg.Image, "Image should match config file")
 			assert.Equal(t, 4, cfg.Resources.CPUCores, "CPU cores should match config file")
 			assert.Equal(t, "8Gi", cfg.Resources.Memory, "Memory should match config file")
 
@@ -180,10 +180,10 @@ func TestREQ50_HermesExecutionOutputCapture(t *testing.T) {
 				ExecutionID: "exec-test-123",
 				ContainerID: "container-abc-456",
 				Image: runlog.ContainerImage{
-					Name:   "pharmalytica/hermes-nonmem",
+					Name:   "shairozan/hermes-nonmem",
 					Tag:    "nm76",
 					Digest: "sha256:abc123def456",
-					Full:   "pharmalytica/hermes-nonmem:nm76",
+					Full:   "shairozan/hermes-nonmem:nm76",
 				},
 				Resources: runlog.HermesResources{
 					CPUCores: 4,
@@ -256,28 +256,28 @@ func TestREQ51_HermesContainerImageProvenance(t *testing.T) {
 				{
 					name: "DockerHub with SHA256 digest",
 					image: runlog.ContainerImage{
-						Name:   "pharmalytica/hermes-nonmem",
+						Name:   "shairozan/hermes-nonmem",
 						Tag:    "nm76",
 						Digest: "sha256:abc123def456789",
-						Full:   "pharmalytica/hermes-nonmem:nm76",
+						Full:   "shairozan/hermes-nonmem:nm76",
 					},
-					expectedName:   "pharmalytica/hermes-nonmem",
+					expectedName:   "shairozan/hermes-nonmem",
 					expectedTag:    "nm76",
 					expectedDigest: "sha256:abc123def456789",
-					expectedFull:   "pharmalytica/hermes-nonmem:nm76",
+					expectedFull:   "shairozan/hermes-nonmem:nm76",
 				},
 				{
 					name: "GitHub Container Registry with digest",
 					image: runlog.ContainerImage{
-						Name:   "ghcr.io/pharmalytica/nonmem",
+						Name:   "your-registry/nonmem",
 						Tag:    "7.5.0",
 						Digest: "sha256:def456abc123",
-						Full:   "ghcr.io/pharmalytica/nonmem:7.5.0",
+						Full:   "your-registry/nonmem:7.5.0",
 					},
-					expectedName:   "ghcr.io/pharmalytica/nonmem",
+					expectedName:   "your-registry/nonmem",
 					expectedTag:    "7.5.0",
 					expectedDigest: "sha256:def456abc123",
-					expectedFull:   "ghcr.io/pharmalytica/nonmem:7.5.0",
+					expectedFull:   "your-registry/nonmem:7.5.0",
 				},
 				{
 					name: "Private registry",

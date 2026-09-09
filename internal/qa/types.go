@@ -12,8 +12,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/model"
-	"github.com/pharmalytica/janus/internal/summary"
+	"github.com/shairozan/janus/internal/model"
+	"github.com/shairozan/janus/internal/summary"
 )
 
 // Status is the outcome of a single check or an overall qualification result.

@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/model"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/model"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 func TestSidecarRoundTrip(t *testing.T) {

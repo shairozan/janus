@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func TestNONMEMExecutor_buildNONMEMCommand(t *testing.T) {

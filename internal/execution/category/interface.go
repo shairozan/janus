@@ -1,6 +1,6 @@
 package category
 
-import "github.com/pharmalytica/janus/internal/config"
+import "github.com/shairozan/janus/internal/config"
 
 // ModelCategory represents a specific modeling platform (NONMEM, Monolix, Stan, Torsten).
 //

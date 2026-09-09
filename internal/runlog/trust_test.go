@@ -10,8 +10,28 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
+
+// singleKeyTrust builds a trust store holding exactly one signer, which is the
+// shape most of these tests want as a fixture.
+//
+// This replaces the former production NewLicenseTrust, whose only caller
+// (appsetup.BuildTrustStore) now builds a keyring-backed store instead. Keeping
+// it here rather than in trust.go stops the test suite from reporting coverage
+// for a construction path that nothing ships.
+func singleKeyTrust(publicKeyPEM, email string) (*KeySet, error) {
+	fingerprint, err := fingerprintOfPEM(publicKeyPEM)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewKeySet(SignerIdentity{
+		Fingerprint:  fingerprint,
+		Email:        email,
+		PublicKeyPEM: publicKeyPEM,
+	}), nil
+}
 
 func TestForgedRecordIsUntrustedNotValid(t *testing.T) {
 	dir := t.TempDir()
@@ -30,7 +50,7 @@ func TestForgedRecordIsUntrustedNotValid(t *testing.T) {
 	evilSigner, err := signing.NewSigner(evilPath)
 	require.NoError(t, err)
 
-	trust, err := NewLicenseTrust(encodePublicKeyPEM(t, goodPub), "johnny@example.com")
+	trust, err := singleKeyTrust(encodePublicKeyPEM(t, goodPub), "johnny@example.com")
 	require.NoError(t, err)
 
 	// A record the attacker fabricated and signed with their own key. The signature
@@ -57,7 +77,7 @@ func TestTamperedRecordIsInvalid(t *testing.T) {
 	signer, err := signing.NewSigner(keyPath)
 	require.NoError(t, err)
 
-	trust, err := NewLicenseTrust(encodePublicKeyPEM(t, pub), "johnny@example.com")
+	trust, err := singleKeyTrust(encodePublicKeyPEM(t, pub), "johnny@example.com")
 	require.NoError(t, err)
 
 	record := &RunRecord{ID: "r", Status: "completed"}

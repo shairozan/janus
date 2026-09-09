@@ -4,12 +4,18 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func main() {
 	// 1. Parse arguments - separate executor flags from container args
 	execFlags, containerArgs := parseExecutorFlags(os.Args[1:])
+
+	if execFlags.RetiredLicense {
+		fmt.Fprintln(os.Stderr,
+			"Warning: --executor-license is no longer used and was ignored. "+
+				"Janus does not require a license; you can drop the flag.")
+	}
 
 	// 2. Handle executor-specific commands
 	if execFlags.Help {
@@ -59,18 +65,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 6. Verify license (fail fast)
-	licensePath := execFlags.License
-	if licensePath == "" {
-		licensePath = getDefaultLicensePath()
-	}
-
-	if err := verifyLicense(licensePath); err != nil {
-		fmt.Fprintf(os.Stderr, "License verification failed: %v\n", err)
-		os.Exit(1)
-	}
-
-	// 7. Execute via Hermes
+	// 6. Execute via Hermes
 	exitCode := executeHermes(modelCfg.Hermes, modelCfg.Retain, modelPath, containerArgs, execFlags)
 	os.Exit(exitCode)
 }

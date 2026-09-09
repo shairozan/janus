@@ -67,7 +67,7 @@ go build -o dist/windows/janus.exe -ldflags "-X main.version=0.2.0" .
 
 # Build Executor (CLI) - pure Go, no CGO needed
 $env:CGO_ENABLED = "0"
-go build -o dist/windows/executor.exe -ldflags "-X github.com/pharmalytica/janus/internal/version.Version=0.2.0" ./cmd/executor
+go build -o dist/windows/executor.exe -ldflags "-X github.com/shairozan/janus/internal/version.Version=0.2.0" ./cmd/executor
 
 # 2. Create application icon (requires ImageMagick)
 New-Item -ItemType Directory -Force -Path assets/icons
@@ -138,8 +138,8 @@ Get-FileHash "../../dist/janus-0.2.0-windows-amd64.msi" -Algorithm SHA256 | `
   - Double-click to open files directly in Janus
 
 ### Registry Keys
-- `HKLM\SOFTWARE\Pharmalytica\Janus\InstallPath` - Installation directory
-- `HKLM\SOFTWARE\Pharmalytica\Janus\Version` - Installed version
+- `HKLM\SOFTWARE\shairozan\Janus\InstallPath` - Installation directory
+- `HKLM\SOFTWARE\shairozan\Janus\Version` - Installed version
 - `HKCR\.mod`, `HKCR\.ctl`, `HKCR\.nmctl` - File associations
 
 ### Upgrade Behavior

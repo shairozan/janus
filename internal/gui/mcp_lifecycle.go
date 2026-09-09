@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/mcp"
-	"github.com/pharmalytica/janus/internal/version"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/mcp"
+	"github.com/shairozan/janus/internal/version"
 )
 
 // StartMCPServer starts the embedded MCP server if it is enabled in config. It is

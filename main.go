@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"embed"
 	"log"
 	"os"
 	"os/signal"
@@ -10,13 +9,8 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/cmd"
+	"github.com/shairozan/janus/cmd"
 )
-
-// EmbeddedAssets contains files embedded at build time
-//
-//go:embed .license_public_key.pem
-var EmbeddedAssets embed.FS
 
 func main() {
 	// Set up environment variable prefix
@@ -26,8 +20,8 @@ func main() {
 	// Create a context that cancels on SIGINT/SIGTERM
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 
-	// Execute the command with signal-aware context and embedded assets
-	rootCmd := cmd.Command(EmbeddedAssets)
+	// Execute the command with a signal-aware context
+	rootCmd := cmd.Command()
 	err := rootCmd.ExecuteContext(ctx)
 
 	// Always call cancel to clean up resources

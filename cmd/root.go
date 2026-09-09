@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"embed"
 	"fmt"
 	"log"
 	"os"
@@ -10,16 +9,17 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/cmd/gui" // Still needed for gui.RunGUI()
-	"github.com/pharmalytica/janus/cmd/janus/commands/execute"
-	"github.com/pharmalytica/janus/cmd/janus/commands/hermes"
-	"github.com/pharmalytica/janus/cmd/janus/commands/mcp"
-	"github.com/pharmalytica/janus/cmd/janus/commands/validate"
-	"github.com/pharmalytica/janus/cmd/version"
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/cmd/gui" // Still needed for gui.RunGUI()
+	"github.com/shairozan/janus/cmd/janus/commands/execute"
+	"github.com/shairozan/janus/cmd/janus/commands/hermes"
+	"github.com/shairozan/janus/cmd/janus/commands/keys"
+	"github.com/shairozan/janus/cmd/janus/commands/mcp"
+	"github.com/shairozan/janus/cmd/janus/commands/validate"
+	"github.com/shairozan/janus/cmd/version"
+	"github.com/shairozan/janus/internal/config"
 )
 
-func Command(assets embed.FS) *cobra.Command {
+func Command() *cobra.Command {
 	var configuration *config.Config
 	c := &cobra.Command{
 		Use:   "janus [model-file]",
@@ -73,10 +73,7 @@ func Command(assets embed.FS) *cobra.Command {
 				modelArgs = []string{expandedPath}
 			}
 
-			// Get license path from flag
-			licensePath, _ := c.Flags().GetString("license")
-
-			return gui.RunGUI(c.Context(), configuration, modelArgs, licensePath, assets)
+			return gui.RunGUI(c.Context(), configuration, modelArgs)
 		},
 	}
 
@@ -88,7 +85,8 @@ func Command(assets embed.FS) *cobra.Command {
 	c.AddCommand(hermes.Command())
 	c.AddCommand(execute.Command())
 	c.AddCommand(validate.Command())
-	c.AddCommand(mcp.Command(assets))
+	c.AddCommand(mcp.Command())
+	c.AddCommand(keys.Command())
 
 	return c
 }
@@ -98,7 +96,6 @@ func attributes(c *cobra.Command) {
 	c.PersistentFlags().String("config", "", "config file (default is ~/.config/janus/config.yml)")
 	c.PersistentFlags().String("logfile", "", "path to log file (if not set, logs to stderr)")
 	c.Flags().String("model", "", "model file to load automatically in GUI")
-	c.Flags().String("license", getDefaultLicensePath(), "path to license JWT file")
 
 	// Additional configuration flags with defaults
 	c.PersistentFlags().String("organization", "BigPharma LLC", "organization name")
@@ -114,22 +111,6 @@ func attributes(c *cobra.Command) {
 	// Bind all flags to viper
 	_ = viper.BindPFlags(c.PersistentFlags())
 	_ = viper.BindPFlags(c.Flags())
-}
-
-func getDefaultLicensePath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		// If home dir lookup fails, use executable directory instead of CWD
-		// This ensures we look in the right place even when launched from shortcuts
-		exePath, exeErr := os.Executable()
-		if exeErr != nil {
-			return "./license.jwt" // Last resort fallback
-		}
-
-		return filepath.Join(filepath.Dir(exePath), "license.jwt")
-	}
-
-	return filepath.Join(home, ".config", "janus", "license.jwt")
 }
 
 // expandHomePath expands ~ to the user's home directory in file paths.

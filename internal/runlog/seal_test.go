@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // newSignedStore returns a store with a signer configured, plus the public key PEM.
@@ -293,27 +293,46 @@ func TestSealRestoresExistingDraftWhenHeadWriteFails(t *testing.T) {
 // The fault is injected by making the runlog directory read-only, which makes
 // writeFileAtomic's temp-file write fail deterministically while leaving every read
 // (ReadHead, the pre-seal byte snapshot, the flock file, which already exists) working.
-func TestSealRestoresRecordWhenRecordWriteFails(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores directory permission bits, so the write cannot be made to fail this way")
-	}
+// recordTempPath is the temp file writeFileAtomic uses when replacing a run
+// record, i.e. the path whose write must fail to exercise the rollback.
+func recordTempPath(store *RunLogStore, record *RunRecord) string {
+	return filepath.Join(store.runlogDir(), record.ID+".json.tmp")
+}
 
+// blockRecordWrite makes the next write of record's file fail, by occupying the
+// atomic write's temp path with a directory.
+//
+// This replaces an earlier chmod(dir, 0500), which could not work on Windows —
+// os.Chmod there only toggles the read-only attribute on files and does not
+// implement directory permission bits, so the write under test still succeeded.
+// Occupying the temp path fails the same way on every platform and for root too,
+// and it fails inside writeRunFileLocked before recordFileWritten is set, which
+// is the branch these tests pin. It also leaves the directory readable and
+// writable, so ReadHead, the flock file and the pre-seal snapshot keep working —
+// which is what the chmod was carefully arranged to preserve anyway.
+func blockRecordWrite(t *testing.T, store *RunLogStore, record *RunRecord) {
+	t.Helper()
+
+	path := recordTempPath(store, record)
+	require.NoError(t, os.MkdirAll(path, 0755))
+	t.Cleanup(func() { _ = os.RemoveAll(path) })
+}
+
+func TestSealRestoresRecordWhenRecordWriteFails(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
 
 	record := &RunRecord{ModelFile: "model.mod", Status: "running"}
 	require.NoError(t, store.AddRun(record))
 	require.False(t, record.Sealed)
 
-	// t.TempDir cleanup needs the directory writable again regardless of outcome.
-	t.Cleanup(func() { _ = os.Chmod(store.runlogDir(), 0755) })
-	require.NoError(t, os.Chmod(store.runlogDir(), 0500))
+	blockRecordWrite(t, store, record)
 
 	record.Status = "completed"
 	err := store.UpdateRun(record)
 	require.Error(t, err, "a failed record write must surface as an error, never be silently swallowed")
 
-	// writeRunFileLocked never ran on this path (the directory is read-only), so
-	// restorePreSealLocked's !recordFileWritten branch returns nil without
+	// writeRunFileLocked failed before it replaced the file, so recordFileWritten
+	// is false and restorePreSealLocked's !recordFileWritten branch returns nil without
 	// touching the file at all — there is nothing to "restore", and the error
 	// must not claim otherwise. This pins the recordFileWritten guard: deleting
 	// it would fall through to the write-back/remove branches below, which
@@ -356,7 +375,7 @@ func TestSealRestoresRecordWhenRecordWriteFails(t *testing.T) {
 
 	// The retry must not be permanently blocked: once the fault clears, the run's
 	// completion must still be recordable.
-	require.NoError(t, os.Chmod(store.runlogDir(), 0755))
+	require.NoError(t, os.RemoveAll(recordTempPath(store, record)))
 
 	record.Status = "completed"
 	require.NoError(t, store.UpdateRun(record), "a transient write failure must not block the retry forever")
@@ -381,28 +400,23 @@ func TestSealRestoresRecordWhenRecordWriteFails(t *testing.T) {
 // case broke the invariant — the store went on serving a sealed sequence-2 record
 // that existed nowhere on disk while the head still said 1.
 func TestSealDoesNotOrphanRecordWhenHeadSigningFails(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores directory permission bits, so the record write cannot be made to fail")
-	}
-
 	faults := map[string]struct {
-		inject func(t *testing.T, store *RunLogStore)
-		clear  func(t *testing.T, store *RunLogStore)
+		inject func(t *testing.T, store *RunLogStore, record *RunRecord)
+		clear  func(t *testing.T, store *RunLogStore, record *RunRecord)
 	}{
 		"record write fails": {
-			inject: func(t *testing.T, store *RunLogStore) {
-				t.Cleanup(func() { _ = os.Chmod(store.runlogDir(), 0755) })
-				require.NoError(t, os.Chmod(store.runlogDir(), 0500))
+			inject: func(t *testing.T, store *RunLogStore, record *RunRecord) {
+				blockRecordWrite(t, store, record)
 			},
-			clear: func(t *testing.T, store *RunLogStore) {
-				require.NoError(t, os.Chmod(store.runlogDir(), 0755))
+			clear: func(t *testing.T, store *RunLogStore, record *RunRecord) {
+				require.NoError(t, os.RemoveAll(recordTempPath(store, record)))
 			},
 		},
 		"head write fails": {
-			inject: func(t *testing.T, store *RunLogStore) {
+			inject: func(t *testing.T, store *RunLogStore, record *RunRecord) {
 				require.NoError(t, os.MkdirAll(store.headPath()+".tmp", 0755))
 			},
-			clear: func(t *testing.T, store *RunLogStore) {
+			clear: func(t *testing.T, store *RunLogStore, record *RunRecord) {
 				require.NoError(t, os.RemoveAll(store.headPath()+".tmp"))
 			},
 		},
@@ -421,12 +435,12 @@ func TestSealDoesNotOrphanRecordWhenHeadSigningFails(t *testing.T) {
 			second := &RunRecord{ModelFile: "model.mod", Status: "running"}
 			require.NoError(t, store.AddRun(second))
 
-			fault.inject(t, store)
+			fault.inject(t, store, second)
 
 			second.Status = "completed"
 			require.Error(t, store.UpdateRun(second), "the failed seal must surface as an error")
 
-			fault.clear(t, store)
+			fault.clear(t, store, second)
 
 			// Invariant 1: the head has not moved.
 			head, err := ReadHead(store.headPath())

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/pharmalytica/janus/internal/mcp"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/mcp"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // maxRunFileBytes caps the content returned by GetRunFile so a large .lst or

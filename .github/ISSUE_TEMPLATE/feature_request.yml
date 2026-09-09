@@ -1,0 +1,24 @@
+name: Feature request
+description: Something Janus should do that it does not
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: |
+        Describe the problem rather than the solution you have in mind. Knowing what
+        you are actually trying to achieve often turns up a better answer.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to see
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today instead
+      description: The workaround you currently use, if any.

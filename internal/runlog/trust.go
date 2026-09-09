@@ -100,22 +100,6 @@ func fingerprintOfPEM(publicKeyPEM string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// NewLicenseTrust builds the commercial trust anchor from the license's
-// SigningPublicKey claim — the value ValidateSigningKeyPair already verifies at
-// startup and, until now, threw away.
-func NewLicenseTrust(publicKeyPEM, email string) (*KeySet, error) {
-	fingerprint, err := fingerprintOfPEM(publicKeyPEM)
-	if err != nil {
-		return nil, fmt.Errorf("license signing key: %w", err)
-	}
-
-	return NewKeySet(SignerIdentity{
-		Fingerprint:  fingerprint,
-		Email:        email,
-		PublicKeyPEM: publicKeyPEM,
-	}), nil
-}
-
 // keyringFile is the on-disk shape of the open-source trust anchor.
 type keyringFile struct {
 	Keys []struct {

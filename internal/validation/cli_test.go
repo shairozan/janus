@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution"
-	"github.com/pharmalytica/janus/internal/model"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution"
+	"github.com/shairozan/janus/internal/model"
 )
 
 // TestREQ_CLI_01_HermesConfigInitialization validates REQ-CLI-01:
@@ -46,7 +46,7 @@ $ESTIMATION METHOD=1
 			// Simulate what `janus hermes init` does:
 			// Create a Hermes configuration file
 			hermesConfig := &config.HermesModelConfig{
-				Image: "ghcr.io/pharmalytica/nonmem:7.5.0",
+				Image: "your-registry/nonmem:7.5.0",
 				Resources: config.ResourceConfig{
 					CPUCores: 4,
 					Memory:   "8Gi",
@@ -65,7 +65,7 @@ $ESTIMATION METHOD=1
 			// Load and verify config
 			loadedConfig, err := config.LoadHermesModelConfig(configPath)
 			require.NoError(t, err, "Should be able to load config")
-			assert.Equal(t, "ghcr.io/pharmalytica/nonmem:7.5.0", loadedConfig.Image)
+			assert.Equal(t, "your-registry/nonmem:7.5.0", loadedConfig.Image)
 			assert.Equal(t, 4, loadedConfig.Resources.CPUCores)
 			assert.Equal(t, "8Gi", loadedConfig.Resources.Memory)
 		},
@@ -100,7 +100,7 @@ $ESTIMATION METHOD=1
 
 			// Create Hermes config
 			hermesConfig := &config.HermesModelConfig{
-				Image: "ghcr.io/pharmalytica/nonmem:7.5.0",
+				Image: "your-registry/nonmem:7.5.0",
 				Resources: config.ResourceConfig{
 					CPUCores: 2,
 					Memory:   "4Gi",
@@ -333,7 +333,7 @@ func TestREQ_CLI_06_RunLogIntegration(t *testing.T) {
 
 			// Create Hermes config
 			hermesConfig := &config.HermesModelConfig{
-				Image: "ghcr.io/pharmalytica/nonmem:7.5.0",
+				Image: "your-registry/nonmem:7.5.0",
 				Resources: config.ResourceConfig{
 					CPUCores: 4,
 					Memory:   "8Gi",
@@ -350,12 +350,12 @@ func TestREQ_CLI_06_RunLogIntegration(t *testing.T) {
 
 			// The run log would be created during execution with metadata:
 			// - execution_mode: "hermes"
-			// - container_image: "ghcr.io/pharmalytica/nonmem:7.5.0"
+			// - container_image: "your-registry/nonmem:7.5.0"
 			// - resources: {cpu_cores: 4, memory: "8Gi"}
 			// - start_time, end_time, status, etc.
 
 			// Verify the config that would be included in run log
-			assert.Equal(t, "ghcr.io/pharmalytica/nonmem:7.5.0", hermesConfig.Image)
+			assert.Equal(t, "your-registry/nonmem:7.5.0", hermesConfig.Image)
 			assert.Equal(t, 4, hermesConfig.Resources.CPUCores)
 			assert.Equal(t, "8Gi", hermesConfig.Resources.Memory)
 		},

@@ -17,9 +17,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution/category"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution/category"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // HermesExecutor implements execution via Hermes gRPC container proxy.
@@ -650,11 +650,11 @@ func (e *HermesExecutor) createContainer(ctx context.Context, modelPath string) 
 			"50051/tcp": struct{}{},
 		},
 		Labels: map[string]string{
-			"com.pharmalytica.janus.managed":   "true",
-			"com.pharmalytica.janus.model":     absModelPath,
-			"com.pharmalytica.janus.directory": modelDir,
-			"com.pharmalytica.janus.category":  categoryName,
-			"com.pharmalytica.janus.executor":  "hermes",
+			"io.github.shairozan.janus.managed":   "true",
+			"io.github.shairozan.janus.model":     absModelPath,
+			"io.github.shairozan.janus.directory": modelDir,
+			"io.github.shairozan.janus.category":  categoryName,
+			"io.github.shairozan.janus.executor":  "hermes",
 		},
 	}
 
@@ -937,8 +937,8 @@ func (e *HermesExecutor) executeViaGRPC(ctx context.Context, command string, arg
 // parseImageReference parses a Docker image reference into name and tag.
 // Handles registry ports correctly by only splitting on the LAST colon.
 // Examples:
-//   - "pharmalytica/hermes-nonmem:nm76" -> ("pharmalytica/hermes-nonmem", "nm76")
-//   - "pharmalytica/hermes-nonmem" -> ("pharmalytica/hermes-nonmem", "latest")
+//   - "shairozan/hermes-nonmem:nm76" -> ("shairozan/hermes-nonmem", "nm76")
+//   - "shairozan/hermes-nonmem" -> ("shairozan/hermes-nonmem", "latest")
 //   - "nginx:1.21" -> ("nginx", "1.21")
 //   - "registry.com:5000/image:tag" -> ("registry.com:5000/image", "tag")
 //   - "localhost:5000/test:v1" -> ("localhost:5000/test", "v1")
@@ -1133,8 +1133,8 @@ func (e *HermesExecutor) cleanupStaleContainersForModel(ctx context.Context, mod
 
 	// List containers with our management label and matching model path
 	filters := filters.NewArgs()
-	filters.Add("label", "com.pharmalytica.janus.managed=true")
-	filters.Add("label", fmt.Sprintf("com.pharmalytica.janus.model=%s", absModelPath))
+	filters.Add("label", "io.github.shairozan.janus.managed=true")
+	filters.Add("label", fmt.Sprintf("io.github.shairozan.janus.model=%s", absModelPath))
 
 	containers, err := e.dockerClient.ContainerList(ctx, container.ListOptions{
 		All:     true, // Include stopped containers

@@ -6,7 +6,7 @@ This document describes the plan for implementing an editable settings window in
 
 ## Current State
 
-The settings window ([app.go:952-1025](../../internal/gui/app.go#L952-L1025)) is currently **read-only** - it displays configuration values as labels but provides no mechanism for editing them.
+The settings window ([app.go:952-1025](../../../../internal/gui/app.go#L952-L1025)) is currently **read-only** - it displays configuration values as labels but provides no mechanism for editing them.
 
 **Current Display:**
 - Version information (read-only, not editable)
@@ -354,5 +354,5 @@ projects: true
 
 - Viper Configuration Library: https://github.com/spf13/viper
 - Fyne UI Toolkit: https://fyne.io/
-- Current implementation: [internal/gui/app.go:952-1025](../../internal/gui/app.go#L952-L1025)
-- Config structure: [internal/config/config.go](../../internal/config/config.go)
+- Current implementation: [internal/gui/app.go:952-1025](../../../../internal/gui/app.go#L952-L1025)
+- Config structure: [internal/config/config.go](../../../../internal/config/config.go)

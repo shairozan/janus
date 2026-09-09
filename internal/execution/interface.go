@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // ExecutionResult represents the result of a NONMEM execution.

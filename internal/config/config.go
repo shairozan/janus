@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/internal/scheduler"
-	"github.com/pharmalytica/janus/internal/version"
+	"github.com/shairozan/janus/internal/scheduler"
+	"github.com/shairozan/janus/internal/version"
 )
 
 // Execution mode constants.
@@ -268,15 +268,40 @@ type NONMEMLicenseConfig struct {
 }
 
 // SigningConfig represents run log cryptographic signing configuration.
-// Users generate RSA key pairs externally and submit the public key when
-// requesting a license. The public key is embedded in the JWT license claims.
-// Janus validates that the configured private key matches the public key
-// in the license at startup.
+//
+// Signing and verification are independent halves. PrivateKeyPath and Identity
+// describe the key this install signs with; KeyringPath lists the public keys
+// whose signatures it accepts. Either half may be configured without the other:
+// you can sign without trusting anyone, and verify without holding a key.
+//
+// All three are optional — signing is off by default.
 type SigningConfig struct {
+	// Backend selects where the private key lives: SigningBackendKeychain (the OS
+	// credential store, keyed by Identity) or SigningBackendFile (PrivateKeyPath).
+	//
+	// Empty means infer: a configured PrivateKeyPath wins, else a configured
+	// Identity implies the keychain, else signing is off. That keeps configs
+	// written before the credential store existed working untouched.
+	Backend string `mapstructure:"backend" yaml:"backend"`
+
 	// PrivateKeyPath is the path to the RSA private key file (PEM format).
 	// This key is used to sign run log entries for cryptographic verification.
-	// The corresponding public key must be embedded in the JWT license.
+	// It is the backend for hosts with no usable credential store — headless
+	// servers, containers and CI, where there is no session keyring to unlock.
 	PrivateKeyPath string `mapstructure:"private_key_path" yaml:"private_key_path"`
+
+	// Identity labels the signing key — conventionally an email address — and is
+	// recorded on every signed record as signer_email. It belongs to the key, not
+	// to the process: verification anchors on the key fingerprint, and the keyring
+	// maps this label to a public key. It is deliberately not derived from the OS
+	// user at run time, which would let the recorded identity drift from the key
+	// that produced the signature.
+	Identity string `mapstructure:"identity" yaml:"identity"`
+
+	// KeyringPath is the path to the YAML keyring listing the public keys whose
+	// signatures this install accepts. A missing keyring means "trust nobody":
+	// signed records report Unverifiable rather than Valid.
+	KeyringPath string `mapstructure:"keyring_path" yaml:"keyring_path"`
 }
 
 // NONMEMConfig represents NONMEM-specific configuration.
@@ -890,6 +915,59 @@ func ExpandSigningPrivateKeyPath(path string) (string, error) {
 	return path, nil
 }
 
+// Signing key backends. See SigningConfig.Backend.
+const (
+	// SigningBackendKeychain keeps the private key in the OS credential store:
+	// Keychain on macOS, Credential Manager on Windows, Secret Service on Linux.
+	SigningBackendKeychain = "keychain"
+
+	// SigningBackendFile keeps the private key in a PEM file on disk.
+	SigningBackendFile = "file"
+)
+
+// ErrUnknownSigningBackend reports a signing.backend value that names neither
+// supported backend.
+var ErrUnknownSigningBackend = errors.New("unknown signing backend")
+
+// ResolveSigningBackend reports which backend cfg selects, and whether signing is
+// configured at all. An explicit Backend wins; otherwise a PrivateKeyPath means
+// file and an Identity alone means keychain.
+//
+// An unrecognised Backend is an error rather than something to infer past. A
+// typo such as "keyring" for "keychain" would otherwise fall through to the
+// inference below and quietly select the *other* backend — signing with a stale
+// key file instead of the credential-store key the user asked for, under a
+// different fingerprint, with no diagnostic.
+func ResolveSigningBackend(cfg SigningConfig) (backend string, enabled bool, err error) {
+	switch cfg.Backend {
+	case SigningBackendKeychain:
+		return SigningBackendKeychain, cfg.Identity != "", nil
+	case SigningBackendFile:
+		return SigningBackendFile, cfg.PrivateKeyPath != "", nil
+	case "":
+		// Nothing declared — infer from what else is configured.
+	default:
+		return "", false, fmt.Errorf("%w %q (want %q or %q)",
+			ErrUnknownSigningBackend, cfg.Backend, SigningBackendKeychain, SigningBackendFile)
+	}
+
+	if cfg.PrivateKeyPath != "" {
+		return SigningBackendFile, true, nil
+	}
+
+	if cfg.Identity != "" {
+		return SigningBackendKeychain, true, nil
+	}
+
+	return "", false, nil
+}
+
+// ExpandSigningKeyringPath expands the home directory in the signing keyring path.
+// Returns the expanded path or empty string if not configured.
+func ExpandSigningKeyringPath(path string) (string, error) {
+	return ExpandSigningPrivateKeyPath(path)
+}
+
 // ValidateSigningConfig validates the signing configuration.
 // This checks that if a private key path is specified, the file exists.
 // Returns nil if signing is not configured (optional feature).
@@ -1088,4 +1166,58 @@ func getDefaultConfigPath() string {
 	}
 
 	return filepath.Join(home, ".config", "janus", "config.yml")
+}
+
+// ErrNoConfigFile reports that there is no config file to update. Callers decide
+// what to do about it; the signing commands tell the user which two lines to add
+// rather than failing, because the key itself is already safely stored.
+var ErrNoConfigFile = errors.New("no config file to update")
+
+// persistSigningKeys updates an existing config file with the given settings.
+//
+// It deliberately refuses to create one. viper.WriteConfig serialises viper's
+// whole in-memory state, which on a fresh install is nothing but flag defaults —
+// producing a file with no execution_mode that Janus then cannot load. Better to
+// leave the user without a config file than with a broken one.
+func persistSigningKeys(settings map[string]string) error {
+	path := viper.ConfigFileUsed()
+	if path == "" {
+		return ErrNoConfigFile
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return ErrNoConfigFile
+		}
+
+		return fmt.Errorf("checking config file %s: %w", path, err)
+	}
+
+	for key, value := range settings {
+		viper.Set(key, value)
+	}
+
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+
+	return nil
+}
+
+// PersistSigningIdentity records the signing backend and identity in the user's
+// config file, so a key created by `janus keys generate` is picked up on the next
+// start without hand-editing YAML. It returns ErrNoConfigFile when there is no
+// config file to update.
+func PersistSigningIdentity(backend, identity string) error {
+	return persistSigningKeys(map[string]string{
+		"signing.backend":  backend,
+		"signing.identity": identity,
+	})
+}
+
+// PersistSigningKeyringPath records the trust keyring location. Signing and
+// verification are independent, so this is separate from PersistSigningIdentity:
+// configuring one must not silently configure the other.
+func PersistSigningKeyringPath(path string) error {
+	return persistSigningKeys(map[string]string{"signing.keyring_path": path})
 }

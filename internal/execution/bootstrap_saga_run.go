@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution/category"
-	"github.com/pharmalytica/janus/internal/kube"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution/category"
+	"github.com/shairozan/janus/internal/kube"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // stagePod is a request to run one Hermes pod stage of the bootstrap saga.

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // sidecarSuffix is appended to a model path to form its metadata sidecar.

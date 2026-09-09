@@ -5,7 +5,7 @@ package visualization
 import (
 	"time"
 
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // ChartType identifies the type of chart to generate.

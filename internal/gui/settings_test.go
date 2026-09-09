@@ -11,7 +11,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func TestSettingsDialog_Validate(t *testing.T) {

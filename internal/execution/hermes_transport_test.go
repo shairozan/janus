@@ -10,7 +10,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	hermespb "github.com/pharmalytica/hermes/proto"
+	hermespb "github.com/shairozan/hermes/proto"
 )
 
 // fakeHermesServer is an in-process Hermes gRPC server for transport tests. It

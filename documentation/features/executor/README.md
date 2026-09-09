@@ -57,7 +57,6 @@ Flags prefixed with `--executor-` are consumed by the executor and never passed 
 |------|-------------|
 | `--executor-help` | Show help |
 | `--executor-version` | Show version |
-| `--executor-license PATH` | License JWT file (default: `~/.config/janus/license.jwt`) |
 | `--executor-janus-config PATH` | Janus config for Docker socket settings |
 | `--executor-hermes-config PATH` | Explicit Hermes config location |
 | `--executor-quiet` | Suppress real-time output streaming |
@@ -80,7 +79,7 @@ The executor searches for `.janus.config.json` using a 4-step heuristic:
 
 ```json
 {
-  "image": "pharmalytica/hermes-nonmem:nm76",
+  "image": "shairozan/hermes-nonmem:nm76",
   "container_command_path": "/opt/NONMEM/nm76/run/nmfe76",
   "resources": {
     "cpus": 4,
@@ -140,4 +139,4 @@ Use `--executor-no-runlog` to disable.
 ## See Also
 
 - [Container Detection](../container_detection/) - Auto-discovery of Hermes-compatible images
-- [Hermes Categorization](../hermes_categorization/) - Model platform detection details
+- [Hermes Categorization](../hermes/build-your-own-image.md) - Model platform detection details

@@ -22,18 +22,18 @@ Container images must include specific labels to be discovered by Janus.
 
 | Label | Value | Description |
 |-------|-------|-------------|
-| `io.pharmalytica.janus.type` | `executor` | Identifies as a Janus executor image |
-| `io.pharmalytica.janus.platform` | `nonmem`, `monolix`, etc. | Modeling platform |
+| `io.github.shairozan.janus.type` | `executor` | Identifies as a Janus executor image |
+| `io.github.shairozan.janus.platform` | `nonmem`, `monolix`, etc. | Modeling platform |
 
 ### Optional Labels
 
 | Label | Example | Description |
 |-------|---------|-------------|
-| `io.pharmalytica.janus.display-name` | `NONMEM 7.5.1` | Human-readable name shown in UI |
-| `io.pharmalytica.janus.description` | `NONMEM 7.5.1 with gfortran` | Additional context |
-| `io.pharmalytica.janus.version` | `0.0.12` | Image version |
-| `io.pharmalytica.janus.min-janus-version` | `0.0.12` | Minimum Janus version required |
-| `io.pharmalytica.janus.container_command` | `/opt/NONMEM/nm75/run/nmfe75` | Default command path |
+| `io.github.shairozan.janus.display-name` | `NONMEM 7.5.1` | Human-readable name shown in UI |
+| `io.github.shairozan.janus.description` | `NONMEM 7.5.1 with gfortran` | Additional context |
+| `io.github.shairozan.janus.version` | `0.0.12` | Image version |
+| `io.github.shairozan.janus.min-janus-version` | `0.0.12` | Minimum Janus version required |
+| `io.github.shairozan.janus.container_command` | `/opt/NONMEM/nm75/run/nmfe75` | Default command path |
 
 ### Platform-Specific Labels
 
@@ -41,32 +41,32 @@ For NONMEM images:
 
 | Label | Example | Description |
 |-------|---------|-------------|
-| `io.pharmalytica.nonmem.version` | `7.5.1` | NONMEM version |
-| `io.pharmalytica.nonmem.compiler` | `gfortran` | Compiler used |
-| `io.pharmalytica.nonmem.compiler-version` | `9.4.0` | Compiler version |
+| `io.github.shairozan.nonmem.version` | `7.5.1` | NONMEM version |
+| `io.github.shairozan.nonmem.compiler` | `gfortran` | Compiler used |
+| `io.github.shairozan.nonmem.compiler-version` | `9.4.0` | Compiler version |
 
 ### Example Dockerfile Labels
 
 ```dockerfile
 # Core identification
-LABEL io.pharmalytica.janus.type="executor"
-LABEL io.pharmalytica.janus.platform="nonmem"
+LABEL io.github.shairozan.janus.type="executor"
+LABEL io.github.shairozan.janus.platform="nonmem"
 
 # Display information
-LABEL io.pharmalytica.janus.display-name="NONMEM 7.5.1"
-LABEL io.pharmalytica.janus.description="NONMEM 7.5.1 with gfortran 9.4.0"
+LABEL io.github.shairozan.janus.display-name="NONMEM 7.5.1"
+LABEL io.github.shairozan.janus.description="NONMEM 7.5.1 with gfortran 9.4.0"
 
 # Version information
-LABEL io.pharmalytica.janus.version="0.0.12"
-LABEL io.pharmalytica.janus.min-janus-version="0.0.12"
+LABEL io.github.shairozan.janus.version="0.0.12"
+LABEL io.github.shairozan.janus.min-janus-version="0.0.12"
 
 # Execution details
-LABEL io.pharmalytica.janus.container_command="/opt/NONMEM/nm75/run/nmfe75"
+LABEL io.github.shairozan.janus.container_command="/opt/NONMEM/nm75/run/nmfe75"
 
 # Platform metadata
-LABEL io.pharmalytica.nonmem.version="7.5.1"
-LABEL io.pharmalytica.nonmem.compiler="gfortran"
-LABEL io.pharmalytica.nonmem.compiler-version="9.4.0"
+LABEL io.github.shairozan.nonmem.version="7.5.1"
+LABEL io.github.shairozan.nonmem.compiler="gfortran"
+LABEL io.github.shairozan.nonmem.compiler-version="9.4.0"
 ```
 
 ## How Discovery Works
@@ -89,7 +89,7 @@ When creating or editing a `.janus.config.json`, the container image field shows
 - **Text entry**: Allows typing custom image names
 - **Refresh button**: Re-scans for images
 
-The dropdown shows the image's primary tag (e.g., `pharmalytica/nonmem:7.5.1`). If a `display-name` label is not set, the tag is used as the display name.
+The dropdown shows the image's primary tag (e.g., `your-registry/nonmem:7.5.1`). If a `display-name` label is not set, the tag is used as the display name.
 
 ### Selection Behavior
 
@@ -184,5 +184,5 @@ This ensures users either get the command from the container or explicitly provi
 
 ## See Also
 
-- [Executor CLI](../cli/) - Command-line executor that uses Hermes transport
-- [Hermes Categorization](../hermes_categorization/) - Model platform detection
+- [Executor CLI](../executor/README.md) - Command-line executor that uses Hermes transport
+- [Hermes Categorization](../hermes/build-your-own-image.md) - Model platform detection

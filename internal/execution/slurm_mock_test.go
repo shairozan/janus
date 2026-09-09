@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/slurm"
+	"github.com/shairozan/janus/internal/slurm"
 )
 
 // MockSLURMClient implements the slurm.Client interface for testing

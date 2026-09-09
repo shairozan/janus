@@ -3,8 +3,8 @@ package execution
 import (
 	"log"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/runpolicy"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/runpolicy"
 )
 
 // policyFromConfig builds a runpolicy.Policy from configuration. A nil config

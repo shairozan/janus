@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // generateTestKeyPair generates an RSA key pair for testing.
@@ -287,7 +287,7 @@ func TestVerifyRecordStatus(t *testing.T) {
 		err := SignRecordWithInfo(record, signer, "user@example.com")
 		require.NoError(t, err)
 
-		trust, err := NewLicenseTrust(publicKeyPEM, "user@example.com")
+		trust, err := singleKeyTrust(publicKeyPEM, "user@example.com")
 		require.NoError(t, err)
 
 		result := VerifyRecordStatus(record, trust)
@@ -311,7 +311,7 @@ func TestVerifyRecordStatus(t *testing.T) {
 		err := SignRecordWithInfo(record, signer, "user@example.com")
 		require.NoError(t, err)
 
-		trust, err := NewLicenseTrust(publicKeyPEM, "user@example.com")
+		trust, err := singleKeyTrust(publicKeyPEM, "user@example.com")
 		require.NoError(t, err)
 
 		// Tamper with the record
@@ -346,7 +346,7 @@ func TestVerifyRecordStatus(t *testing.T) {
 
 		// A trust store that authorizes a completely different key.
 		_, otherPublicKey := generateTestKeyPair(t)
-		trust, err := NewLicenseTrust(encodePublicKeyPEM(t, otherPublicKey), "someone-else@example.com")
+		trust, err := singleKeyTrust(encodePublicKeyPEM(t, otherPublicKey), "someone-else@example.com")
 		require.NoError(t, err)
 
 		result := VerifyRecordStatus(record, trust)

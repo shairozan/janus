@@ -206,10 +206,3 @@ func TestFindHermesConfig_SkipsExecutorFlags(t *testing.T) {
 	assert.Equal(t, absConfigPath, foundConfig)
 }
 
-func TestGetDefaultLicensePath(t *testing.T) {
-	licensePath := getDefaultLicensePath()
-
-	// Should return a path (either ~/.config/janus/license.jwt or ./license.jwt)
-	assert.NotEmpty(t, licensePath)
-	assert.Contains(t, licensePath, "license.jwt")
-}

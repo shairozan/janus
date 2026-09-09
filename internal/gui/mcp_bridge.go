@@ -7,8 +7,9 @@ import (
 
 	"fyne.io/fyne/v2"
 
-	"github.com/pharmalytica/janus/internal/mcpservice"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/appsetup"
+	"github.com/shairozan/janus/internal/mcpservice"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // This file is the GUI's thin seam onto the shared, fyne-free mcpservice. The
@@ -27,7 +28,6 @@ func (a *App) buildMCPService() (*mcpservice.Service, error) {
 
 	return mcpservice.New(mcpservice.Options{
 		Config:     a.config,
-		License:    a.licenseClaims,
 		Resolve:    a.resolveStore,
 		AppCtx:     a.errorCtx,
 		OnComplete: a.onRunComplete,
@@ -35,13 +35,14 @@ func (a *App) buildMCPService() (*mcpservice.Service, error) {
 	})
 }
 
-// signerEmail returns the email associated with the run-log signer, or "".
+// signerEmail returns the identity bound to the run-log signing key, or "".
+//
+// The identity comes from config rather than from the OS user: it labels the
+// key, and the trust keyring matches it to a public key. Deriving it per-run
+// would let the identity recorded on a record drift from the key that actually
+// signed it.
 func (a *App) signerEmail() string {
-	if a.licenseClaims == nil {
-		return ""
-	}
-
-	return a.licenseClaims.UserEmail
+	return appsetup.SignerIdentity(a.config)
 }
 
 // resolveStore is the GUI's StoreResolver: an empty path (or a path matching the

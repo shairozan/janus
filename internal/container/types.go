@@ -3,24 +3,24 @@ package container
 // Label constants for Janus-compatible container images.
 const (
 	// Core identification labels.
-	LabelType     = "io.pharmalytica.janus.type"
-	LabelPlatform = "io.pharmalytica.janus.platform"
+	LabelType     = "io.github.shairozan.janus.type"
+	LabelPlatform = "io.github.shairozan.janus.platform"
 
 	// Display information labels.
-	LabelDisplayName = "io.pharmalytica.janus.display-name"
-	LabelDescription = "io.pharmalytica.janus.description"
+	LabelDisplayName = "io.github.shairozan.janus.display-name"
+	LabelDescription = "io.github.shairozan.janus.description"
 
 	// Version information labels.
-	LabelVersion         = "io.pharmalytica.janus.version"
-	LabelMinJanusVersion = "io.pharmalytica.janus.min-janus-version"
+	LabelVersion         = "io.github.shairozan.janus.version"
+	LabelMinJanusVersion = "io.github.shairozan.janus.min-janus-version"
 
 	// Execution details labels.
-	LabelContainerCommand = "io.pharmalytica.janus.container_command"
+	LabelContainerCommand = "io.github.shairozan.janus.container_command"
 
 	// Platform-specific metadata labels (NONMEM).
-	LabelNONMEMVersion         = "io.pharmalytica.nonmem.version"
-	LabelNONMEMCompiler        = "io.pharmalytica.nonmem.compiler"
-	LabelNONMEMCompilerVersion = "io.pharmalytica.nonmem.compiler-version"
+	LabelNONMEMVersion         = "io.github.shairozan.nonmem.version"
+	LabelNONMEMCompiler        = "io.github.shairozan.nonmem.compiler"
+	LabelNONMEMCompilerVersion = "io.github.shairozan.nonmem.compiler-version"
 
 	// Expected values for filtering.
 	TypeExecutor   = "executor"
@@ -33,7 +33,7 @@ type DiscoveredImage struct {
 	// ImageID is the Docker image ID (sha256:...)
 	ImageID string
 
-	// RepoTags are the repository tags (e.g., "pharmalytica/nonmem:7.5.1")
+	// RepoTags are the repository tags (e.g., "your-registry/nonmem:7.5.1")
 	RepoTags []string
 
 	// DisplayName is the human-readable name from labels (e.g., "NONMEM 7.5.1")

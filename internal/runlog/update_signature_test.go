@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // TestUpdateRunPreservesSignatureValidity reproduces the add-then-update path that
@@ -79,7 +79,7 @@ func TestUpdateRunPreservesSignatureValidity(t *testing.T) {
 			"a failure here means Janus signs a record, mutates it, saves it without re-signing, "+
 			"and then reports its own output as tampered")
 
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	status := VerifyRecordStatus(reloaded, trust)

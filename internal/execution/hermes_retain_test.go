@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution/category"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution/category"
 )
 
 // TestResolveRetainPatterns exercises the four-tier precedence:

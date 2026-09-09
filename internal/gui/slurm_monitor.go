@@ -13,8 +13,8 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/slurm"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/slurm"
 )
 
 // SLURMMonitor manages SLURM job monitoring and UI updates.
@@ -577,11 +577,6 @@ func (a *App) BuildSLURMJobsTab() fyne.CanvasObject {
 // setupSLURMMonitoring initializes SLURM monitoring if configuration supports it.
 func (a *App) setupSLURMMonitoring() {
 	if a.config == nil {
-		return
-	}
-
-	// Only set up SLURM monitoring if licensed for "grid" feature
-	if !a.HasFeature("grid") {
 		return
 	}
 

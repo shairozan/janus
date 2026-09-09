@@ -13,9 +13,9 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/pharmalytica/janus/internal/model"
-	"github.com/pharmalytica/janus/internal/runlog"
-	"github.com/pharmalytica/janus/internal/summary"
+	"github.com/shairozan/janus/internal/model"
+	"github.com/shairozan/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/summary"
 )
 
 var (

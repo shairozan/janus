@@ -24,19 +24,18 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/pharmalytica/janus/internal/appsetup"
-	"github.com/pharmalytica/janus/internal/comparison"
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution"
-	"github.com/pharmalytica/janus/internal/execution/category"
-	"github.com/pharmalytica/janus/internal/gui/editor"
-	"github.com/pharmalytica/janus/internal/license/validator"
-	"github.com/pharmalytica/janus/internal/mcp"
-	"github.com/pharmalytica/janus/internal/mcpservice"
-	"github.com/pharmalytica/janus/internal/model"
-	"github.com/pharmalytica/janus/internal/runlog"
-	"github.com/pharmalytica/janus/internal/signing"
-	"github.com/pharmalytica/janus/internal/visualization"
+	"github.com/shairozan/janus/internal/appsetup"
+	"github.com/shairozan/janus/internal/comparison"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution"
+	"github.com/shairozan/janus/internal/execution/category"
+	"github.com/shairozan/janus/internal/gui/editor"
+	"github.com/shairozan/janus/internal/mcp"
+	"github.com/shairozan/janus/internal/mcpservice"
+	"github.com/shairozan/janus/internal/model"
+	"github.com/shairozan/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/signing"
+	"github.com/shairozan/janus/internal/visualization"
 )
 
 type App struct {
@@ -46,7 +45,6 @@ type App struct {
 	needsRunDetailsTab bool
 	pendingModelPath   string
 	config             *config.Config
-	licenseClaims      *validator.Claims
 
 	// Current loaded file
 	currentFilePath string
@@ -260,28 +258,14 @@ func (a *App) sweepOrphanedHermesPodsAsync() {
 	}()
 }
 
-// SetLicenseClaims stores the validated license claims for feature gating.
-func (a *App) SetLicenseClaims(claims *validator.Claims) {
-	a.licenseClaims = claims
-}
-
-// HasFeature checks if a feature is enabled in the license.
-func (a *App) HasFeature(feature string) bool {
-	if a.licenseClaims == nil {
-		return false
-	}
-
-	return a.licenseClaims.HasFeature(feature)
-}
-
 // initSigner initializes the run log signer if signing is configured.
-// This should be called after SetConfiguration and SetLicenseClaims.
+// This should be called after SetConfiguration.
 func (a *App) initSigner() {
 	// Reset existing signer and the resolver that captured it.
 	a.signer = nil
 	a.ephemeralResolver = nil
 
-	signer, err := appsetup.BuildSigner(a.config, a.licenseClaims)
+	signer, err := appsetup.BuildSigner(a.config)
 	if err != nil {
 		log.Printf("ERROR: run log signing setup failed: %v", err)
 		// Surface compliance/signing failures to the user.
@@ -300,14 +284,13 @@ func (a *App) initSigner() {
 }
 
 // initTrustStore constructs the run-log verification trust anchor from the
-// license claims. This must be constructed here (the highest layer that knows
-// about both config and license) and handed down — internal/runlog must never
-// construct its own trust anchor, and the record being verified must never
-// supply it either.
+// configured keyring. This must be constructed here (the highest layer that
+// knows about config) and handed down — internal/runlog must never construct its
+// own trust anchor, and the record being verified must never supply it either.
 //
-// This should be called after SetConfiguration and SetLicenseClaims.
+// This should be called after SetConfiguration.
 func (a *App) initTrustStore() {
-	trust, err := appsetup.BuildTrustStore(a.licenseClaims)
+	trust, err := appsetup.BuildTrustStore(a.config)
 	if err != nil {
 		log.Printf("ERROR: run log trust store setup failed: %v", err)
 
@@ -389,32 +372,6 @@ func (a *App) updateRunButtonState() {
 		a.runBtn.Importance = widget.HighImportance
 	}
 	a.runBtn.Refresh()
-}
-
-// ShowLicenseError displays a license validation error and exits the application.
-func (a *App) ShowLicenseError(err error) {
-	// Create a simple window to show the error
-	window := a.fyneApp.NewWindow("License Error")
-	window.Resize(fyne.NewSize(500, 200))
-
-	errorMsg := fmt.Sprintf("Failed to validate license:\n\n%v\n\nPlease ensure a valid license file exists at the configured path.", err)
-
-	content := container.NewVBox(
-		widget.NewLabel("License Validation Failed"),
-		widget.NewLabel(""),
-		widget.NewLabel(errorMsg),
-		widget.NewLabel(""),
-		widget.NewButton("Exit", func() {
-			a.fyneApp.Quit()
-		}),
-	)
-
-	window.SetContent(container.NewPadded(content))
-	window.CenterOnScreen()
-	window.Show()
-
-	// Run the app to show the error dialog
-	a.fyneApp.Run()
 }
 
 // handleErrors processes errors from the error channel and displays them as toast notifications.
@@ -612,9 +569,9 @@ func (a *App) buildMainInterface() fyne.CanvasObject {
 		}
 	}
 
-	// Conditionally add grid details if licensed for "grid" feature AND scheduler is available
+	// Conditionally add grid details if a SLURM scheduler is configured and available
 	showGridDetails := false
-	if a.HasFeature("grid") && a.config != nil && a.config.Scheduler == "SLURM" {
+	if a.config != nil && a.config.Scheduler == "SLURM" {
 		// Check if SLURM is actually available on the system
 		if IsSLURMAvailable() {
 			showGridDetails = true
@@ -3811,8 +3768,8 @@ func (a *App) setupModelRunHistory(modelFilePath string) {
 	a.modelMu.Unlock()
 
 	// Configure signer if available
-	if a.signer != nil && a.licenseClaims != nil {
-		a.runLogStore.SetSigner(a.signer, a.licenseClaims.UserEmail)
+	if a.signer != nil {
+		a.runLogStore.SetSigner(a.signer, a.signerEmail())
 	}
 
 	// The verification trust anchor is NOT handed to the store: it is passed
@@ -4384,7 +4341,7 @@ func (a *App) executeLocalRun(runRecord *runlog.RunRecord) {
 	// config so a "Here" run stays local even when a remote host is configured.
 	factory := execution.NewExecutorFactory(a.localRunConfig())
 	if concreteFactory, ok := factory.(*execution.DefaultExecutorFactory); ok {
-		concreteFactory.SetRunLogEnabled(a.HasFeature("runlog"))
+		concreteFactory.SetRunLogEnabled(true)
 	}
 
 	// Horizontal PsN bootstrap saga (#192): a host-orchestrated Kubernetes fan-out,
@@ -4781,7 +4738,7 @@ func (a *App) executeGridRun(runRecord *runlog.RunRecord) {
 	// Create executor factory and get the appropriate executor
 	factory := execution.NewExecutorFactory(a.config)
 	if concreteFactory, ok := factory.(*execution.DefaultExecutorFactory); ok {
-		concreteFactory.SetRunLogEnabled(a.HasFeature("runlog"))
+		concreteFactory.SetRunLogEnabled(true)
 	}
 
 	var executor execution.Executor

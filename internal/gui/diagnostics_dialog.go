@@ -12,10 +12,10 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/pharmalytica/janus/internal/extraction"
-	"github.com/pharmalytica/janus/internal/runlog"
-	"github.com/pharmalytica/janus/internal/tables"
-	"github.com/pharmalytica/janus/internal/visualization"
+	"github.com/shairozan/janus/internal/extraction"
+	"github.com/shairozan/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/tables"
+	"github.com/shairozan/janus/internal/visualization"
 )
 
 // DiagnosticsDialog displays GOF plots and diagnostics for a single run.

@@ -1,7 +1,7 @@
 package summary
 
 import (
-	"github.com/pharmalytica/janus/internal/model"
+	"github.com/shairozan/janus/internal/model"
 )
 
 // Type aliases for backward compatibility.

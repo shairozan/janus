@@ -42,7 +42,7 @@ This will:
 
 ```bash
 cd /path/to/janus
-GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -o janus-ubuntu2404 -ldflags "-X github.com/pharmalytica/janus/internal/version.Version=0.2.0" .
+GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build -o janus-ubuntu2404 -ldflags "-X github.com/shairozan/janus/internal/version.Version=0.2.0" .
 ```
 
 ### Manual Build Steps
@@ -54,7 +54,7 @@ If you need more control:
 cd /path/to/janus
 GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build \\
   -o janus-ubuntu2404 \\
-  -ldflags "-X github.com/pharmalytica/janus/internal/version.Version=0.2.0" .
+  -ldflags "-X github.com/shairozan/janus/internal/version.Version=0.2.0" .
 
 # 2. Generate icons (if needed)
 convert assets/logo.png -resize 48x48 assets/icons/janus-48.png

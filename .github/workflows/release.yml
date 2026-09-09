@@ -28,11 +28,6 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Setup license public key
-        uses: ./.github/actions/setup-license-key
-        with:
-          license-public-key: ${{ secrets.LICENSE_PUBLIC_KEY }}
-
       - name: Start virtual display for GUI tests
         shell: bash
         run: |
@@ -102,53 +97,6 @@ jobs:
           echo "This validation ensures regulatory compliance for pharmaceutical software." >> $GITHUB_STEP_SUMMARY
           echo "All system call generation and configuration management has been verified." >> $GITHUB_STEP_SUMMARY
 
-  # Build license-server binaries for Linux platforms
-  build-license-server:
-    needs: [tests, validation]
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            container: "dukeofubuntu/janus-ci:ubuntu20"
-            target-name: "ubuntu2004"
-            binary-name: "license-server-ubuntu2004"
-          - os: ubuntu-latest
-            container: "dukeofubuntu/janus-ci:ubuntu22"
-            target-name: "ubuntu2204"
-            binary-name: "license-server-ubuntu2204"
-          - os: ubuntu-latest
-            container: "dukeofubuntu/janus-ci:ubuntu24"
-            target-name: "ubuntu2404"
-            binary-name: "license-server-ubuntu2404"
-
-    runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Build license-server binary
-        env:
-          CGO_ENABLED: 1
-        shell: bash
-        run: |
-          echo "🚀 Building license-server release binary for ${{ matrix.target-name }}..."
-          echo "✅ Tests passed - proceeding with release build"
-          go build -buildvcs=false -ldflags "-s -w -X github.com/pharmalytica/janus/internal/license/version.Version=${{ github.ref_name }} -X github.com/pharmalytica/janus/internal/license/version.Commit=${{ github.sha }} -X github.com/pharmalytica/janus/internal/license/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ') -X github.com/pharmalytica/janus/internal/license/version.BuiltBy=github-actions" -o ${{ matrix.binary-name }} ./cmd/license-server
-          echo "✅ Binary built successfully: ${{ matrix.binary-name }}"
-
-      - name: Upload license-server artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: license-server-${{ matrix.target-name }}
-          path: ${{ matrix.binary-name }}
-
   build-matrix:
     needs: [tests, validation]
     strategy:
@@ -211,11 +159,6 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Setup license public key
-        uses: ./.github/actions/setup-license-key
-        with:
-          license-public-key: ${{ secrets.LICENSE_PUBLIC_KEY }}
-
       - name: Build binary
         env:
           CGO_ENABLED: 1
@@ -229,20 +172,166 @@ jobs:
 
           # Build ldflags with version info
           LDFLAGS="-s -w"
-          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Version=${{ github.ref_name }}"
-          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Commit=${{ github.sha }}"
-          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.BuiltBy=github-actions"
-
-          # Public key is embedded via go:embed from .license_public_key.pem (written in previous step)
-          if [ -f .license_public_key.pem ]; then
-            echo "🔑 License public key will be embedded via go:embed"
-          else
-            echo "ℹ️  No public key found - building without license validation"
-          fi
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.Version=${{ github.ref_name }}"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.Commit=${{ github.sha }}"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.BuiltBy=github-actions"
 
           go build -buildvcs=false -ldflags "$LDFLAGS" -o ${{ matrix.binary-name }} .
           echo "✅ Binary built successfully: ${{ matrix.binary-name }}"
+
+      # ---- macOS signing, packaging and notarization -------------------------
+      # Every step below is gated on the Apple secrets being present, so a fork
+      # (or this repo before the secrets are configured) still produces a green
+      # release with unsigned binaries rather than a red one.
+      - name: Set up signing keychain
+        id: signing
+        if: matrix.goos == 'darwin'
+        shell: bash
+        env:
+          APP_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          INSTALLER_P12: ${{ secrets.APPLE_INSTALLER_P12 }}
+          P12_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$APP_P12" ] || [ -z "$INSTALLER_P12" ] || [ -z "$P12_PASSWORD" ]; then
+            echo "::warning::Apple signing secrets are not configured - macOS artifacts will be unsigned."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          KEYCHAIN="$RUNNER_TEMP/janus-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+
+          # A dedicated keychain rather than the login one: created empty, holds
+          # only what this run needs, and is destroyed afterwards.
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          echo "$APP_P12" | base64 --decode > "$RUNNER_TEMP/application.p12"
+          echo "$INSTALLER_P12" | base64 --decode > "$RUNNER_TEMP/installer.p12"
+
+          security import "$RUNNER_TEMP/application.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+          security import "$RUNNER_TEMP/installer.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+
+          rm -f "$RUNNER_TEMP/application.p12" "$RUNNER_TEMP/installer.p12"
+
+          # Without this, codesign blocks on a GUI prompt nobody can answer on a
+          # runner, and the job hangs until it times out.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+
+          # build-pkg.sh resolves identities with `security find-identity`, which
+          # only searches keychains on the search list.
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+          echo "Identities available to this build:"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Build executor binary (macOS)
+        if: matrix.goos == 'darwin'
+        env:
+          CGO_ENABLED: 1
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        shell: bash
+        run: |
+          # build-pkg.sh ships both binaries, so the executor has to be built
+          # alongside the GUI before the package is assembled.
+          LDFLAGS="-s -w"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.Version=${{ github.ref_name }}"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.Commit=${{ github.sha }}"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.BuiltBy=github-actions"
+
+          go build -buildvcs=false -ldflags "$LDFLAGS" -o executor-darwin-${{ matrix.goarch }} ./cmd/executor
+
+      - name: Sign standalone macOS binaries
+        if: matrix.goos == 'darwin' && steps.signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          APPLE_APPLICATION_CERT_NAME: ${{ secrets.APPLE_APPLICATION_CERT_NAME }}
+        run: |
+          # build-pkg.sh signs the copies it places inside the package root, not
+          # these originals — and these are what the .tar.gz ships. Without this
+          # step the archive would contain unsigned binaries while the .pkg was
+          # correctly signed, which is a difference nobody would notice until a
+          # user hit Gatekeeper.
+          for bin in "${{ matrix.binary-name }}" "executor-darwin-${{ matrix.goarch }}"; do
+            codesign --sign "$APPLE_APPLICATION_CERT_NAME" --options runtime --timestamp --force "$bin"
+            codesign --verify --strict --verbose=2 "$bin"
+          done
+
+      - name: Build and sign macOS package
+        if: matrix.goos == 'darwin' && steps.signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          APPLE_APPLICATION_CERT_NAME: ${{ secrets.APPLE_APPLICATION_CERT_NAME }}
+          APPLE_CERTIFICATE_NAME: ${{ secrets.APPLE_CERTIFICATE_NAME }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          ./installer/macos/build-pkg.sh "${VERSION#v}" "${{ matrix.goarch }}"
+
+          # build-pkg.sh falls back to an unsigned package rather than failing,
+          # which is right for a local build and wrong for a release: an unsigned
+          # .pkg would sail through notarization submission and only fail for
+          # users. Signing was expected here, so make its absence fatal.
+          PKG="dist/janus-${VERSION#v}-macos-${{ matrix.goarch }}.pkg"
+          if ! pkgutil --check-signature "$PKG" | grep -q "Developer ID Installer"; then
+            echo "::error::$PKG is not signed by a Developer ID Installer certificate."
+            pkgutil --check-signature "$PKG" || true
+            exit 1
+          fi
+
+      - name: Notarize and staple macOS package
+        if: matrix.goos == 'darwin' && steps.signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          VERSION="${{ github.ref_name }}"
+          PKG="dist/janus-${VERSION#v}-macos-${{ matrix.goarch }}.pkg"
+
+          if [ -z "$API_KEY_ID" ] || [ -z "$API_ISSUER_ID" ] || [ -z "$API_KEY_P8" ]; then
+            echo "::warning::App Store Connect API secrets are not configured - $PKG is signed but NOT notarized."
+            echo "Gatekeeper refuses un-notarized Developer ID software on macOS 10.14.5 and later."
+            exit 0
+          fi
+
+          KEY_PATH="$RUNNER_TEMP/asc-api-key.p8"
+          # printf '%s\n' rather than '%s': a secret often arrives with its
+          # trailing newline stripped, and a PEM whose END line has no newline is
+          # rejected by some parsers. An extra blank line is harmless.
+          printf '%s\n' "$API_KEY_P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          trap 'rm -f "$KEY_PATH"' EXIT
+
+          if ! grep -q "BEGIN PRIVATE KEY" "$KEY_PATH"; then
+            echo "::error::APPLE_API_KEY_P8 does not look like a PEM private key."
+            echo "It must be the full contents of the AuthKey_*.p8 file, including the BEGIN/END lines."
+            exit 1
+          fi
+
+          # --wait blocks for Apple's verdict, so a rejection fails the release
+          # here rather than shipping something Gatekeeper will refuse.
+          xcrun notarytool submit "$PKG" --key "$KEY_PATH" --key-id "$API_KEY_ID" --issuer "$API_ISSUER_ID" --wait --timeout 30m
+
+          # Stapling attaches the ticket so the package validates without network.
+          xcrun stapler staple "$PKG"
+          xcrun stapler validate "$PKG"
+
+          shasum -a 256 "$PKG" > "$PKG.sha256"
+
+      - name: Remove signing keychain
+        if: always() && matrix.goos == 'darwin' && steps.signing.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          security list-keychain -d user -s login.keychain-db
+          security delete-keychain "$KEYCHAIN" || true
 
       # Create .deb packages only for Linux builds
       - name: Create .deb package
@@ -277,7 +366,7 @@ jobs:
           Description: Janus - NONMEM Grid Management Tool
            A modern, cost-effective replacement for Certara Pirana using Go + Fyne.io,
            with pluggable orchestrator backends and built-in CFR 21 Part 11 compliance.
-          Homepage: https://github.com/pharmalytica/janus
+          Homepage: https://github.com/shairozan/janus
           EOF
 
           # Build .deb package
@@ -310,9 +399,11 @@ jobs:
             janus_*_${{ matrix.target-name }}_amd64.deb
             janus-${{ matrix.target-name }}.zip
             janus-${{ matrix.target-name }}.tar.gz
+            dist/janus-*-macos-*.pkg
+            dist/janus-*-macos-*.pkg.sha256
 
   release:
-    needs: [build-matrix, build-license-server]
+    needs: [build-matrix]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -344,9 +435,8 @@ jobs:
             **/janus-macos-amd64.tar.gz
             **/janus-macos-arm64
             **/janus-macos-arm64.tar.gz
-            **/license-server-ubuntu2004
-            **/license-server-ubuntu2204
-            **/license-server-ubuntu2404
+            **/janus-*-macos-*.pkg
+            **/janus-*-macos-*.pkg.sha256
           body: |
             ## Release ${{ github.ref_name }}
 
@@ -389,19 +479,26 @@ jobs:
             3. Run `janus-windows-amd64.exe`
 
             ### macOS
-            **Intel Macs**:
+
+            The signed, notarized `.pkg` is the recommended install — it puts
+            `janus` and `executor` on your PATH and passes Gatekeeper without
+            any right-click-to-open dance.
+
+            **Apple Silicon**: download `janus-*-macos-arm64.pkg` and open it.
+            **Intel**: download `janus-*-macos-amd64.pkg` and open it.
+
+            Verify the download first if you like:
             ```bash
-            # Download janus-macos-amd64.tar.gz, then:
-            tar -xzf janus-macos-amd64.tar.gz
-            chmod +x janus-macos-amd64
-            ./janus-macos-amd64
+            shasum -a 256 -c janus-*-macos-arm64.pkg.sha256
+            pkgutil --check-signature janus-*-macos-arm64.pkg
             ```
 
-            **Apple Silicon (M1/M2)**:
+            The bare `.tar.gz` binaries are also published for scripted installs.
+            They are signed, but only the `.pkg` is notarized and stapled, so
+            Gatekeeper may still prompt on first launch. Prefer the `.pkg` unless
+            you are scripting:
             ```bash
-            # Download janus-macos-arm64.tar.gz, then:
-            tar -xzf janus-macos-arm64.tar.gz
-            chmod +x janus-macos-arm64
+            tar -xzf janus-macos-arm64.tar.gz && chmod +x janus-macos-arm64
             ./janus-macos-arm64
             ```
 
@@ -410,41 +507,8 @@ jobs:
 
             ### Using Go Install
             ```bash
-            go install github.com/pharmalytica/janus@${{ github.ref_name }}
+            go install github.com/shairozan/janus@${{ github.ref_name }}
             ```
 
-            ## License Server
-
-            This release includes the **License Server** binaries for managing Janus licensing and JWT token generation.
-
-            ### License Server Installation
-
-            **Ubuntu 20.04 (Focal)**:
-            ```bash
-            chmod +x license-server-ubuntu2004
-            sudo mv license-server-ubuntu2004 /usr/local/bin/license-server
-            ```
-
-            **Ubuntu 22.04 (Jammy)**:
-            ```bash
-            chmod +x license-server-ubuntu2204
-            sudo mv license-server-ubuntu2204 /usr/local/bin/license-server
-            ```
-
-            **Ubuntu 24.04 (Noble)**:
-            ```bash
-            chmod +x license-server-ubuntu2404
-            sudo mv license-server-ubuntu2404 /usr/local/bin/license-server
-            ```
-
-            ### License Server Configuration
-
-            Requires PostgreSQL and environment variables:
-            - `LICENSING_DATABASE_URL` - PostgreSQL connection string
-            - `LICENSING_ENCRYPTION_KEY` - 32-byte AES-GCM encryption key
-            - `LICENSING_PORT` - Server port (default: 8443)
-            - `LICENSING_HOST` - Bind address (default: 0.0.0.0)
-
-            See `cmd/license-server/README.md` for detailed documentation.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

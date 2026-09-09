@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution/category"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution/category"
 )
 
 // TestReadLicenseFile tests reading NONMEM license files.
@@ -21,7 +21,7 @@ func TestReadLicenseFile(t *testing.T) {
 		// Create temporary license file
 		tmpDir := t.TempDir()
 		licensePath := filepath.Join(tmpDir, "nonmem.lic")
-		licenseContent := []byte("# NONMEM License File\nUSER:test@pharmalytica.com\n")
+		licenseContent := []byte("# NONMEM License File\nUSER:test@example.com\n")
 		err := os.WriteFile(licensePath, licenseContent, 0644)
 		require.NoError(t, err)
 
@@ -269,7 +269,7 @@ func TestNewHermesExecutor(t *testing.T) {
 		cfg.RunLogEnabled = false
 
 		modelConfig := &config.HermesModelConfig{
-			Image: "pharmalytica/hermes-nonmem:nm76",
+			Image: "shairozan/hermes-nonmem:nm76",
 			Resources: config.ResourceConfig{
 				CPUCores: 4,
 				Memory:   "8Gi",
@@ -290,7 +290,7 @@ func TestNewHermesExecutor(t *testing.T) {
 
 	t.Run("Accepts nil config (standalone executor mode)", func(t *testing.T) {
 		modelConfig := &config.HermesModelConfig{
-			Image: "pharmalytica/hermes-nonmem:nm76",
+			Image: "shairozan/hermes-nonmem:nm76",
 			Resources: config.ResourceConfig{
 				CPUCores: 4,
 				Memory:   "8Gi",

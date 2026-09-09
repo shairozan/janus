@@ -67,7 +67,7 @@ $ESTIMATION METHOD=1 MAXEVALS=9999
 	// For now, we'll create the config file manually to test execution
 	configPath := filepath.Join(tmpDir, ".janus.config.json")
 	configContent := `{
-  "image": "ghcr.io/pharmalytica/nonmem:test",
+  "image": "your-registry/nonmem:test",
   "resources": {
     "cpu_cores": 2,
     "memory": "4Gi"
@@ -146,7 +146,7 @@ $ESTIMATION METHOD=1 MAXEVALS=9999
 	// Create Hermes config
 	configPath := filepath.Join(modelDir, ".janus.config.json")
 	configContent := `{
-  "image": "ghcr.io/pharmalytica/nonmem:test",
+  "image": "your-registry/nonmem:test",
   "resources": {
     "cpu_cores": 2,
     "memory": "4Gi"
@@ -253,7 +253,7 @@ func TestCLI_RunLogGeneration(t *testing.T) {
 
 	configPath := filepath.Join(tmpDir, ".janus.config.json")
 	configContent := `{
-  "image": "ghcr.io/pharmalytica/nonmem:7.5.0",
+  "image": "your-registry/nonmem:7.5.0",
   "resources": {
     "cpu_cores": 4,
     "memory": "8Gi"

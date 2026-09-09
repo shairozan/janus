@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/remote"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/remote"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // NONMEMExecutor implements direct NONMEM execution.

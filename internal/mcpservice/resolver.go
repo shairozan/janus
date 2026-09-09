@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pharmalytica/janus/internal/runlog"
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // StoreResolver maps a model path to its run-log store. An empty path is the

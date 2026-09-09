@@ -37,14 +37,7 @@ func Build() error {
 		date = "unknown"
 	}
 
-	ldflags := fmt.Sprintf("-s -w -X github.com/pharmalytica/janus/internal/version.Version=dev -X github.com/pharmalytica/janus/internal/version.Commit=%s -X github.com/pharmalytica/janus/internal/version.Date=%s -X github.com/pharmalytica/janus/internal/version.BuiltBy=mage", commit, date)
-
-	// Check if public key file exists for go:embed
-	if _, err := os.Stat(".license_public_key.pem"); err == nil {
-		fmt.Println("🔑 License public key will be embedded via go:embed")
-	} else {
-		fmt.Println("ℹ️  No public key found (.license_public_key.pem) - building without license validation")
-	}
+	ldflags := fmt.Sprintf("-s -w -X github.com/shairozan/janus/internal/version.Version=dev -X github.com/shairozan/janus/internal/version.Commit=%s -X github.com/shairozan/janus/internal/version.Date=%s -X github.com/shairozan/janus/internal/version.BuiltBy=mage", commit, date)
 
 	env := map[string]string{
 		"CGO_ENABLED": "1",
@@ -148,7 +141,7 @@ func Format() error {
 
 	// Run goimports on all files
 	fmt.Printf("📝 Running goimports on %d files...\n", len(goFiles))
-	goimportsArgs := append([]string{"-w", "-local", "github.com/pharmalytica/janus"}, goFiles...)
+	goimportsArgs := append([]string{"-w", "-local", "github.com/shairozan/janus"}, goFiles...)
 	if err := sh.RunV("goimports", goimportsArgs...); err != nil {
 		return fmt.Errorf("goimports failed: %w", err)
 	}
@@ -300,15 +293,7 @@ func Release(ctx context.Context, version string) error {
 		date = "unknown"
 	}
 
-	ldflags := fmt.Sprintf("-s -w -X github.com/pharmalytica/janus/internal/version.Version=%s -X github.com/pharmalytica/janus/internal/version.Commit=%s -X github.com/pharmalytica/janus/internal/version.Date=%s -X github.com/pharmalytica/janus/internal/version.BuiltBy=mage", version, commit, date)
-
-	// Check if public key file exists for go:embed
-	if _, err := os.Stat(".license_public_key.pem"); err == nil {
-		fmt.Println("🔑 License public key will be embedded via go:embed")
-	} else {
-		fmt.Println("⚠️  Warning: No public key found (.license_public_key.pem)")
-		fmt.Println("   License validation will not work in this build")
-	}
+	ldflags := fmt.Sprintf("-s -w -X github.com/shairozan/janus/internal/version.Version=%s -X github.com/shairozan/janus/internal/version.Commit=%s -X github.com/shairozan/janus/internal/version.Date=%s -X github.com/shairozan/janus/internal/version.BuiltBy=mage", version, commit, date)
 
 	env := map[string]string{
 		"CGO_ENABLED": "1",
@@ -624,7 +609,7 @@ func Package(ctx context.Context, version string, ubuntuVersion string) error {
 		date = "unknown"
 	}
 
-	ldflags := fmt.Sprintf("-s -w -X github.com/pharmalytica/janus/internal/version.Version=%s -X github.com/pharmalytica/janus/internal/version.Commit=%s -X github.com/pharmalytica/janus/internal/version.Date=%s -X github.com/pharmalytica/janus/internal/version.BuiltBy=mage", version, commit, date)
+	ldflags := fmt.Sprintf("-s -w -X github.com/shairozan/janus/internal/version.Version=%s -X github.com/shairozan/janus/internal/version.Commit=%s -X github.com/shairozan/janus/internal/version.Date=%s -X github.com/shairozan/janus/internal/version.BuiltBy=mage", version, commit, date)
 
 	binaryName := fmt.Sprintf("janus-%s", targetUbuntu)
 	env := map[string]string{
@@ -698,7 +683,7 @@ Maintainer: dukeofubuntu <noreply@github.com>
 Description: Janus - NONMEM Grid Management Tool
  A modern, cost-effective replacement for Certara Pirana using Go + Fyne.io,
  with pluggable orchestrator backends and built-in CFR 21 Part 11 compliance.
-Homepage: https://github.com/pharmalytica/janus
+Homepage: https://github.com/shairozan/janus
 `, debVersion)
 
 	if err := os.WriteFile(controlFile, []byte(controlContent), 0644); err != nil {
@@ -732,22 +717,6 @@ Homepage: https://github.com/pharmalytica/janus
 func BuildExecutor() error {
 	fmt.Println("🔨 Building executor binary...")
 
-	// Copy license public key to cmd/executor for embedding
-	// This allows the executor to validate licenses using the embedded key
-	licenseSrc := ".license_public_key.pem"
-	licenseDst := "cmd/executor/.license_public_key.pem"
-	if _, err := os.Stat(licenseSrc); err == nil {
-		if err := sh.Copy(licenseDst, licenseSrc); err != nil {
-			fmt.Printf("⚠️  Warning: Failed to copy license public key: %v\n", err)
-			fmt.Println("   Executor will run in dev mode (license validation skipped)")
-		} else {
-			fmt.Println("📋 License public key copied for embedding")
-		}
-	} else {
-		fmt.Println("⚠️  Warning: No license public key found at repository root")
-		fmt.Println("   Executor will run in dev mode (license validation skipped)")
-	}
-
 	// Get git commit
 	commit, _ := sh.Output("git", "rev-parse", "HEAD")
 	if commit == "" {
@@ -768,10 +737,10 @@ func BuildExecutor() error {
 
 	ldflags := fmt.Sprintf(
 		"-s -w "+
-			"-X github.com/pharmalytica/janus/internal/version.Version=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.Commit=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.Date=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.BuiltBy=mage",
+			"-X github.com/shairozan/janus/internal/version.Version=%s "+
+			"-X github.com/shairozan/janus/internal/version.Commit=%s "+
+			"-X github.com/shairozan/janus/internal/version.Date=%s "+
+			"-X github.com/shairozan/janus/internal/version.BuiltBy=mage",
 		version, commit, date,
 	)
 
@@ -818,10 +787,10 @@ func BuildExecutorAll() error {
 
 	ldflags := fmt.Sprintf(
 		"-s -w "+
-			"-X github.com/pharmalytica/janus/internal/version.Version=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.Commit=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.Date=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.BuiltBy=mage",
+			"-X github.com/shairozan/janus/internal/version.Version=%s "+
+			"-X github.com/shairozan/janus/internal/version.Commit=%s "+
+			"-X github.com/shairozan/janus/internal/version.Date=%s "+
+			"-X github.com/shairozan/janus/internal/version.BuiltBy=mage",
 		version, commit, date,
 	)
 
