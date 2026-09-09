@@ -1,61 +1,5 @@
 
 services:
-  # PostgreSQL database for license server
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=janus
-      - POSTGRES_PASSWORD=janus_dev_password
-      - POSTGRES_DB=janus_license
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U janus -d janus_license"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    profiles:
-      - dev
-      - license
-
-  # License server (for development/testing)
-  license-server:
-    build:
-      context: .
-      dockerfile: Dockerfile.license-server
-    depends_on:
-      postgres:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      - LICENSING_DATABASE_URL=postgres://janus:janus_dev_password@postgres:5432/janus_license?sslmode=disable
-    ports:
-      - "8443:8443"
-    profiles:
-      - dev
-      - license
-
-  # pgAdmin for database administration
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
-      - PGADMIN_DEFAULT_PASSWORD=admin
-      - PGADMIN_CONFIG_SERVER_MODE=False
-      - PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED=False
-    ports:
-      - "5050:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    depends_on:
-      - postgres
-    profiles:
-      - dev
-      - license
-
   golangci-lint:
     image: golangci/golangci-lint:v2.1.5-alpine
     volumes:
@@ -152,8 +96,3 @@ services:
       - DISPLAY=:99
     profiles:
       - validation
-volumes:
-  postgres_data:
-    driver: local
-  pgadmin_data:
-    driver: local

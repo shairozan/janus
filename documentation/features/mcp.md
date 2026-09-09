@@ -509,16 +509,16 @@ workbench (e.g. Metworx) or a laptop. It binds loopback, requires the same beare
 token, and runs until `SIGINT`/`SIGTERM`, then shuts down gracefully.
 
 ```bash
-janus mcp server --license ~/.config/janus/license.jwt --allow-execute
+janus mcp server --allow-execute
 ```
 
-Flags: `--license` (JWT path), `--allow-execute` (gate `execute_run`, default
-off), `--host`/`--port` (override config). Running the command is itself the
-intent to serve, so it does not require `mcp.enabled` (that flag only gates GUI
-auto-start). It validates the license, builds the run-log signer, provisions the
-bearer token (same generate-once invariant as the GUI), and serves.
+Flags: `--allow-execute` (gate `execute_run`, default off), `--host`/`--port`
+(override config). Running the command is itself the intent to serve, so it does
+not require `mcp.enabled` (that flag only gates GUI auto-start). It builds the
+run-log signer, provisions the bearer token (same generate-once invariant as the
+GUI), and serves.
 
-A `systemd --user` unit (user-scoped, so it has the user's license, NONMEM
+A `systemd --user` unit (user-scoped, so it has the user's signing key, NONMEM
 access, and writes run logs as the user):
 
 ```ini
@@ -528,7 +528,7 @@ Description=Janus MCP server
 After=network.target
 
 [Service]
-ExecStart=%h/.local/bin/janus mcp server --license %h/.config/janus/license.jwt --allow-execute
+ExecStart=%h/.local/bin/janus mcp server --allow-execute
 Restart=on-failure
 
 [Install]

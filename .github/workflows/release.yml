@@ -28,11 +28,6 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Setup license public key
-        uses: ./.github/actions/setup-license-key
-        with:
-          license-public-key: ${{ secrets.LICENSE_PUBLIC_KEY }}
-
       - name: Start virtual display for GUI tests
         shell: bash
         run: |
@@ -102,53 +97,6 @@ jobs:
           echo "This validation ensures regulatory compliance for pharmaceutical software." >> $GITHUB_STEP_SUMMARY
           echo "All system call generation and configuration management has been verified." >> $GITHUB_STEP_SUMMARY
 
-  # Build license-server binaries for Linux platforms
-  build-license-server:
-    needs: [tests, validation]
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            container: "dukeofubuntu/janus-ci:ubuntu20"
-            target-name: "ubuntu2004"
-            binary-name: "license-server-ubuntu2004"
-          - os: ubuntu-latest
-            container: "dukeofubuntu/janus-ci:ubuntu22"
-            target-name: "ubuntu2204"
-            binary-name: "license-server-ubuntu2204"
-          - os: ubuntu-latest
-            container: "dukeofubuntu/janus-ci:ubuntu24"
-            target-name: "ubuntu2404"
-            binary-name: "license-server-ubuntu2404"
-
-    runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Build license-server binary
-        env:
-          CGO_ENABLED: 1
-        shell: bash
-        run: |
-          echo "🚀 Building license-server release binary for ${{ matrix.target-name }}..."
-          echo "✅ Tests passed - proceeding with release build"
-          go build -buildvcs=false -ldflags "-s -w -X github.com/pharmalytica/janus/internal/license/version.Version=${{ github.ref_name }} -X github.com/pharmalytica/janus/internal/license/version.Commit=${{ github.sha }} -X github.com/pharmalytica/janus/internal/license/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ') -X github.com/pharmalytica/janus/internal/license/version.BuiltBy=github-actions" -o ${{ matrix.binary-name }} ./cmd/license-server
-          echo "✅ Binary built successfully: ${{ matrix.binary-name }}"
-
-      - name: Upload license-server artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: license-server-${{ matrix.target-name }}
-          path: ${{ matrix.binary-name }}
-
   build-matrix:
     needs: [tests, validation]
     strategy:
@@ -211,11 +159,6 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Setup license public key
-        uses: ./.github/actions/setup-license-key
-        with:
-          license-public-key: ${{ secrets.LICENSE_PUBLIC_KEY }}
-
       - name: Build binary
         env:
           CGO_ENABLED: 1
@@ -233,13 +176,6 @@ jobs:
           LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Commit=${{ github.sha }}"
           LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
           LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.BuiltBy=github-actions"
-
-          # Public key is embedded via go:embed from .license_public_key.pem (written in previous step)
-          if [ -f .license_public_key.pem ]; then
-            echo "🔑 License public key will be embedded via go:embed"
-          else
-            echo "ℹ️  No public key found - building without license validation"
-          fi
 
           go build -buildvcs=false -ldflags "$LDFLAGS" -o ${{ matrix.binary-name }} .
           echo "✅ Binary built successfully: ${{ matrix.binary-name }}"
@@ -312,7 +248,7 @@ jobs:
             janus-${{ matrix.target-name }}.tar.gz
 
   release:
-    needs: [build-matrix, build-license-server]
+    needs: [build-matrix]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -344,9 +280,6 @@ jobs:
             **/janus-macos-amd64.tar.gz
             **/janus-macos-arm64
             **/janus-macos-arm64.tar.gz
-            **/license-server-ubuntu2004
-            **/license-server-ubuntu2204
-            **/license-server-ubuntu2404
           body: |
             ## Release ${{ github.ref_name }}
 
@@ -413,38 +346,5 @@ jobs:
             go install github.com/pharmalytica/janus@${{ github.ref_name }}
             ```
 
-            ## License Server
-
-            This release includes the **License Server** binaries for managing Janus licensing and JWT token generation.
-
-            ### License Server Installation
-
-            **Ubuntu 20.04 (Focal)**:
-            ```bash
-            chmod +x license-server-ubuntu2004
-            sudo mv license-server-ubuntu2004 /usr/local/bin/license-server
-            ```
-
-            **Ubuntu 22.04 (Jammy)**:
-            ```bash
-            chmod +x license-server-ubuntu2204
-            sudo mv license-server-ubuntu2204 /usr/local/bin/license-server
-            ```
-
-            **Ubuntu 24.04 (Noble)**:
-            ```bash
-            chmod +x license-server-ubuntu2404
-            sudo mv license-server-ubuntu2404 /usr/local/bin/license-server
-            ```
-
-            ### License Server Configuration
-
-            Requires PostgreSQL and environment variables:
-            - `LICENSING_DATABASE_URL` - PostgreSQL connection string
-            - `LICENSING_ENCRYPTION_KEY` - 32-byte AES-GCM encryption key
-            - `LICENSING_PORT` - Server port (default: 8443)
-            - `LICENSING_HOST` - Bind address (default: 0.0.0.0)
-
-            See `cmd/license-server/README.md` for detailed documentation.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

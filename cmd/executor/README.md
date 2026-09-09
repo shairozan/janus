@@ -26,7 +26,7 @@ The container image specified in `.janus.config.json` determines what tool runs 
 - ✅ **Pure Go (CGO disabled)** - Easy cross-compilation for all platforms
 - ✅ **Zero argument interpretation** - Pass everything through except `--executor-*`
 - ✅ **Heuristic config discovery** - Smart path-based discovery
-- ✅ **Fail fast** - License and config validation before Docker operations
+- ✅ **Fail fast** - Config validation before Docker operations
 
 ## Architecture
 
@@ -40,8 +40,7 @@ cmd/executor/
 ├── config.go        # Config discovery algorithm
 ├── config_test.go   # Config discovery tests
 ├── execute.go       # Hermes execution orchestration
-├── help.go          # Help and version display
-└── license.go       # License verification
+└── help.go          # Help and version display
 ```
 
 ### Component Responsibilities
@@ -53,8 +52,7 @@ cmd/executor/
   2. Handle `--executor-help` and `--executor-version`
   3. Find config file
   4. Load Hermes configuration
-  5. Verify license
-  6. Execute via Hermes
+  5. Execute via Hermes
 
 #### args.go
 - Manual argument parser (no Cobra)
@@ -65,7 +63,6 @@ cmd/executor/
 **Executor Flags:**
 - `--executor-help` - Show executor help
 - `--executor-version` - Show version info
-- `--executor-license PATH` - License JWT file path
 - `--executor-quiet` - Suppress output streaming
 - `--executor-hermes-config PATH` - Explicit config file location
 - `--executor-no-runlog` - Skip run log update
@@ -87,12 +84,6 @@ cmd/executor/
 - Handles signal forwarding (SIGINT/SIGTERM)
 - Streams output to stdout/stderr by default
 - Collects and writes artifacts back to model directory
-
-#### license.go
-- License verification using embedded public key
-- Embeds public key via `//go:embed` directive
-- Validates JWT signature, expiration, claims
-- Fails fast before any Docker operations
 
 #### help.go
 - Help text display (`--executor-help`)
@@ -186,13 +177,6 @@ func parseExecutorFlags(args []string) (ExecutorFlags, []string) {
         switch {
         case arg == "--executor-help":
             flags.Help = true
-        case strings.HasPrefix(arg, "--executor-license="):
-            flags.License = strings.TrimPrefix(arg, "--executor-license=")
-        case arg == "--executor-license":
-            if i+1 < len(args) {
-                flags.License = args[i+1]
-                i++ // Skip next arg (value)
-            }
         default:
             // Not an executor flag - pass to container
             containerArgs = append(containerArgs, arg)
@@ -268,7 +252,6 @@ return result.ExitCode
 ### Internal Janus Packages (Reused)
 - `internal/config` - Configuration management
 - `internal/execution` - Hermes execution infrastructure
-- `internal/license` - License verification
 - `internal/version` - Version information
 
 ### External Dependencies
@@ -276,7 +259,6 @@ return result.ExitCode
 - Go 1.21+ (for standard library features)
 
 ### Build-time Dependencies
-- `//go:embed` for embedding license public key
 - `ldflags` for version injection
 
 ## Release Process
@@ -315,20 +297,6 @@ fmt.Fprintf(os.Stderr, "DEBUG: Checking config at: %s\n", configPath)
 strace -e openat ./executor model.mod 2>&1 | grep janus.config.json
 ```
 
-### Testing License Verification
-
-```bash
-# Build with embedded public key
-cp .license_public_key.pem ./cmd/executor/
-go build ./cmd/executor
-
-# Test with valid license
-./executor --executor-license=/path/to/valid.jwt model.mod
-
-# Test with invalid license (should fail)
-./executor --executor-license=/path/to/invalid.jwt model.mod
-```
-
 ## Design Rationale
 
 ### Why No Cobra/Viper?
@@ -345,12 +313,6 @@ go build ./cmd/executor
 - **Explicit override**: `--executor-hermes-config` for advanced users
 - **Fail-safe**: Clear error messages when config not found
 
-### Why Embedded Public Key?
-
-- **Zero setup**: No need to distribute separate key file
-- **Security**: Binary is self-contained, validates licenses independently
-- **Simplicity**: Users don't need to manage key files
-
 ## Troubleshooting
 
 ### Common Issues
@@ -360,12 +322,6 @@ go build ./cmd/executor
 Error: no .janus.config.json found
 ```
 **Solution**: Create config in model directory or use `--executor-hermes-config`
-
-**Issue: License verification failed**
-```
-License verification failed: invalid signature
-```
-**Solution**: Ensure license JWT is valid and matches embedded public key
 
 **Issue: Container not found**
 ```

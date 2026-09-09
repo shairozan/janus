@@ -57,7 +57,6 @@ Flags prefixed with `--executor-` are consumed by the executor and never passed 
 |------|-------------|
 | `--executor-help` | Show help |
 | `--executor-version` | Show version |
-| `--executor-license PATH` | License JWT file (default: `~/.config/janus/license.jwt`) |
 | `--executor-janus-config PATH` | Janus config for Docker socket settings |
 | `--executor-hermes-config PATH` | Explicit Hermes config location |
 | `--executor-quiet` | Suppress real-time output streaming |

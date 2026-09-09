@@ -1041,9 +1041,6 @@ executor model.mlxtran
 # Specify Hermes config explicitly
 executor --executor-hermes-config=/path/to/.janus.config.json model.mod model.lst
 
-# Specify license file
-executor --executor-license=/path/to/license.jwt model.mod model.lst
-
 # Quiet mode (suppress stdout/stderr streaming)
 executor --executor-quiet model.mod model.lst
 

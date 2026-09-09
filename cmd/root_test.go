@@ -4,16 +4,12 @@
 package cmd
 
 import (
-	"embed"
 	"fmt"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 )
-
-//go:embed testdata/*
-var testAssets embed.FS
 
 func TestRootCommand_ArgumentValidation(t *testing.T) {
 	tests := []struct {
@@ -42,7 +38,7 @@ func TestRootCommand_ArgumentValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := Command(testAssets)
+			cmd := Command()
 
 			// Override RunE to avoid actually running the GUI
 			cmd.RunE = func(c *cobra.Command, args []string) error {
@@ -109,7 +105,7 @@ func TestRootCommand_ArgumentParsing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var capturedModelArgs []string
 
-			cmd := Command(testAssets)
+			cmd := Command()
 
 			// Override RunE to capture the model args without running GUI
 			cmd.RunE = func(c *cobra.Command, args []string) error {
@@ -153,7 +149,7 @@ func TestRootCommand_ArgumentParsing(t *testing.T) {
 }
 
 func TestRootCommand_Structure(t *testing.T) {
-	cmd := Command(testAssets)
+	cmd := Command()
 
 	// Verify command structure
 	assert.Equal(t, "janus [model-file]", cmd.Use)
@@ -174,15 +170,12 @@ func TestRootCommand_Structure(t *testing.T) {
 }
 
 func TestRootCommand_Flags(t *testing.T) {
-	cmd := Command(testAssets)
+	cmd := Command()
 
 	// Verify important flags exist
 	modelFlag := cmd.Flags().Lookup("model")
 	assert.NotNil(t, modelFlag)
 	assert.Equal(t, "string", modelFlag.Value.Type())
-
-	licenseFlag := cmd.Flags().Lookup("license")
-	assert.NotNil(t, licenseFlag)
 
 	configFlag := cmd.PersistentFlags().Lookup("config")
 	assert.NotNil(t, configFlag)

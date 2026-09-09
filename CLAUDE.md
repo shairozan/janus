@@ -40,46 +40,6 @@ The whole point of this is two things:
 If anything you plan to do removes either of the above, it's not an acceptable option.
 There's no point to automation if it can't handle releases and the like.
 
-# Frontend Development
-
-The web front-end (the Next.js management portal) lives in `web/portal/`.
-
-**Always run frontend work through a design skill** — building or restyling
-components, pages, or interfaces. Two are available; use one of them, never
-neither:
-
-- **`frontend-design`** — the established default. A general aesthetic-direction
-  and design-quality pass.
-- **`impeccable`** (`pbakaus/impeccable`) — a heavier, command-driven design
-  language (`critique`, `audit`, `polish`, `animate`, `typeset`, `layout`,
-  `harden`, ...). Prefer it for scoped evaluation and refinement of surfaces that
-  already exist. Invoke as `$impeccable <command> <target>`.
-
-Either way, the point is the same: a deliberate design pass so the UI stays
-distinctive and production-grade rather than generic.
-
-**Caveat when using `impeccable`:** its "absolute bans" are written against
-generic AI output and collide head-on with our committed direction — it treats
-the warm cream/paper background band and navy-and-gold as saturated AI defaults
-to be rejected. For Janus they are *not* defaults; they are a deliberate,
-documented brand. Our design standards win. Take impeccable's craft guidance
-(contrast ratios, line length, motion, z-index scales, a11y, responsive) and
-reject its identity-level rewrites. If it proposes abandoning the palette or
-type system, stop and ask rather than complying.
-
-**Before** any design pass, read `documentation/design/frontend-design-standards.md`.
-It is the authoritative record of the design decisions already made and *why* —
-the aesthetic direction (neoclassical editorial: cream paper, navy ink, gold
-accent), the color tokens, the type system (Fraunces + Hanken Grotesk), the
-component conventions, and accessibility/quality bars. Honor and extend those
-standards; do not invent parallel styles. If a decision there needs to change,
-update that document in the same change.
-
-Reuse the existing design tokens (`web/portal/app/globals.css` →
-`tailwind.config.ts`) and `components/ui/` primitives rather than hand-rolling
-one-off styles. Every change must keep `pnpm lint`, `pnpm typecheck`, `pnpm test`,
-and `pnpm build` green (run from `web/portal/`).
-
 # Docker Development Workflow
 
 ## Fast Local Development with Cached Dependencies
