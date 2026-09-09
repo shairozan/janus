@@ -139,4 +139,4 @@ Use `--executor-no-runlog` to disable.
 ## See Also
 
 - [Container Detection](../container_detection/) - Auto-discovery of Hermes-compatible images
-- [Hermes Categorization](../hermes_categorization/) - Model platform detection details
+- [Hermes Categorization](../hermes/build-your-own-image.md) - Model platform detection details

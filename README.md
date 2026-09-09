@@ -1,17 +1,26 @@
 # Janus: NONMEM Grid Management Tool
 
-A modern, cost-effective replacement for Certara Pirana using Go + Fyne.io, with pluggable orchestrator
-backends and a cryptographically signed execution record built for CFR 21 Part 11 environments.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Every run is signed (RSA-SHA256), attributed to a licensed user, and — for containerized executions —
-pinned to an image digest, so the evidence a sponsor needs is produced as a by-product of running the
-model rather than reconstructed afterward. Janus is a GAMP Category 4 tool that supports your Part 11
-obligations; it is not itself a Part 11 system of record. See
-[documentation/gxp/INTENDED_USE.md](documentation/gxp/INTENDED_USE.md) for the exact boundary.
+An open-source alternative to Certara Pirana, built with Go + Fyne.io, with
+pluggable orchestrator backends and a cryptographically signed execution record
+suited to CFR 21 Part 11 environments.
+
+Every run is signed (RSA-SHA256), attributed to the identity bound to your signing
+key, and — for containerized executions — pinned to an image digest, so the
+evidence a sponsor needs is produced as a by-product of running the model rather
+than reconstructed afterward. Janus is a GAMP Category 4 tool that supports your
+Part 11 obligations; it is not itself a Part 11 system of record. See
+[documentation/gxp/INTENDED_USE.md](documentation/gxp/INTENDED_USE.md) for the
+exact boundary, and note that as community-supported open source there is no
+vendor validation package behind it — the qualification burden is yours, and
+Janus gives you IQ/OQ tooling to discharge it.
+
+**No license key, no activation, no phoning home.** Clone it, build it, run it.
 
 ## Project Overview
 
-**Goal**: Build a GUI tool that doesn't require monthly license validation or punch holes in your firewall just to submit modeling jobs.
+**Goal**: A GUI tool that doesn't require license validation or punch holes in your firewall just to submit modeling jobs.
 
 **Architecture**: Clean separation between GUI, orchestrator abstraction layer, and backend implementations (starting with PSN, expanding to BBI).
 
@@ -27,7 +36,11 @@ obligations; it is not itself a Part 11 system of record. See
 
 ### Prerequisites
 
-You need Go 1.23+ and a C compiler for CGO (Fyne requirement).
+- **Go 1.25+**
+- **A C compiler** — Fyne needs cgo
+- **git** *(optional)* — only used to suggest an identity when you run
+  `janus keys generate`. Janus never shells out to git while running, so compute
+  nodes and containers do not need it.
 
 ### The Compiler Saga
 
@@ -127,7 +140,7 @@ janus --model model.mod
 - `.ctl` - NONMEM control stream
 - `.nmctl` - NONMEM control stream
 
-**Note**: Once native installers are available (Windows MSI, Linux DEB, macOS signed binaries), you'll be able to double-click model files to open them directly in Janus. See [installers_execution_plan.md](documentation/design/features/todo/installers_execution_plan.md) for details.
+**Note**: Once native installers are available (Windows MSI, Linux DEB, macOS signed binaries), you'll be able to double-click model files to open them directly in Janus. See [installers_execution_plan.md](documentation/design/features/implemented/installers/installers_execution_plan.md) for details.
 
 ### Other Commands
 
@@ -146,57 +159,17 @@ janus execute model.mod
 
 This was originally developed purely on linux, then moved to windows, which exposed how clunky windows can be. The mage architecture has several commands added to help this _still work_. `mage docker:lint` will run lint in a container (the same that CI is using) to check for linting rules.
 
-## Docker Development with Private Repositories
+## Docker Development
 
-Janus depends on the private `github.com/shairozan/hermes` repository. To build and test in Docker, you need to provide GitHub credentials:
+Building in Docker pins the toolchain for you, which is handy on Windows. No
+credentials are needed — every dependency is public.
 
-### Setup GitHub Authentication
-
-1. **Create a GitHub Personal Access Token (PAT)**:
-   - Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
-   - Generate new token with `repo` scope (for private repository access)
-   - Copy the token value
-
-2. **Set environment variables**:
-   ```bash
-   # Windows (PowerShell)
-   $env:GITHUB_USER="your-github-username"
-   $env:GITHUB_TOKEN="ghp_your_token_here"
-
-   # Linux/macOS (bash)
-   export GITHUB_USER="your-github-username"
-   export GITHUB_TOKEN="ghp_your_token_here"
-
-   # Or add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
-   ```
-
-3. **Build the development Docker image**:
-   ```bash
-   mage docker:buildDev
-   ```
-   This will use your credentials to access the private hermes repository during the build.
-
-4. **Run Docker commands**:
-   ```bash
-   mage docker:build        # Build in Docker with cached deps
-   mage docker:unit         # Run unit tests in Docker
-   mage docker:gui          # Run GUI tests in Docker
-   mage docker:checkAll     # Full validation in Docker
-   ```
-
-### CI/CD Configuration
-
-For CI/CD pipelines (GitHub Actions, GitLab CI, etc.), set these as repository secrets:
-- `GITHUB_USER`: GitHub username
-- `GITHUB_TOKEN`: Personal access token with `repo` scope
-
-Then pass them to mage commands:
-```yaml
-# Example GitHub Actions
-env:
-  GITHUB_USER: ${{ secrets.GITHUB_USER }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-run: mage docker:buildDev && mage docker:checkAll
+```bash
+mage docker:buildDev     # build the dev image (first time only, 5-10 minutes)
+mage docker:build        # build with cached deps
+mage docker:unit         # unit tests
+mage docker:gui          # GUI tests
+mage docker:checkAll     # full validation
 ```
 
 ## Project Structure
@@ -499,142 +472,7 @@ hermes:
 - **External hooks**: Environment variable export + script execution
 - **MCP server**: Query run history via AI chat
 - **Multi-platform**: Linux primary, Windows/Mac secondary
-- **Licensing Integration**: OIDC-based enterprise licensing system
 - **Supply Chain Security**: GitHub attestations (build provenance, SBOM) for enterprise trust and compliance
-
-## Licensing Architecture (Future Implementation)
-
-### Overview
-The setup wizard provides an ideal foundation for enterprise licensing integration. The same UI pattern used for initial configuration can seamlessly handle license activation and validation.
-
-### OIDC Integration Flow
-
-**Architecture**: Browser-based OIDC flow with localhost callback handling
-
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Setup Wizard   │    │ License Service │    │ Local Listener  │
-│                 │    │   (OIDC IdP)    │    │  (localhost)    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                        │                        │
-         │ 1. Request License     │                        │
-         ├────────────────────────┤                        │
-         │                        │                        │
-         │ 2. Open Browser        │                        │
-         │    + Start Listener    │                        │
-         ├────────────────────────┤                        │
-         │                        │ 3. OIDC Auth Flow     │
-         │                        ├────────────────────────┤
-         │                        │                        │
-         │                        │ 4. Callback + Token   │
-         │                        ├────────────────────────┤
-         │                        │                        │
-         │ 5. License Details     │                        │
-         ├────────────────────────┤                        │
-         │                        │                        │
-         │ 6. Store License       │                        │
-         │    + Continue Setup    │                        │
-```
-
-### Implementation Components
-
-**1. License Service Integration**
-```go
-type LicenseClient struct {
-    BaseURL      string
-    ClientID     string
-    ClientSecret string
-    RedirectURI  string // http://localhost:8080/callback
-}
-
-func (lc *LicenseClient) InitiateLicenseFlow() (*LicenseRequest, error)
-func (lc *LicenseClient) StartCallbackListener() (<-chan *License, error)
-```
-
-**2. Setup Wizard Enhancement**
-- Add "License Type" selection (Community/Enterprise)
-- Enterprise path triggers OIDC flow
-- Community path continues with current setup
-- License details stored in config alongside other settings
-
-**3. Localhost Callback Handler**
-```go
-type CallbackServer struct {
-    Port     int    // Default: 8080
-    Path     string // Default: /callback
-    Timeout  time.Duration
-}
-
-func (cs *CallbackServer) Listen() (<-chan *AuthResult, error)
-```
-
-### Configuration Integration
-
-**Enhanced Config Structure**:
-```yaml
-# User Configuration
-organization: "Acme Pharmaceuticals"
-default-directory: "~/models"
-nonmem-path: "/opt/NONMEM/nm76/run"
-
-# License Configuration (Enterprise only)
-license:
-  type: "enterprise"           # or "community"
-  organization-id: "uuid-here"
-  expires: "2025-12-31"
-  features: ["runlog", "projects", "mcp"]
-  token: "jwt-token-here"
-```
-
-### Security Considerations
-
-**Token Storage**:
-- JWT tokens stored in config file (user readable only)
-- Refresh tokens handled automatically
-- Graceful degradation on license expiry
-
-**Network Security**:
-- Localhost listener only (127.0.0.1 binding)
-- Single-use callback URLs
-- PKCE (Proof Key for Code Exchange) for security
-- Timeout-based listener cleanup
-
-**Airgapped Environments**:
-- Offline license validation option
-- License file import mechanism
-- Manual activation codes for restricted networks
-
-### User Experience
-
-**Setup Flow**:
-1. User runs `janus` (first time)
-2. Setup wizard appears
-3. User selects "Enterprise License"
-4. Browser opens to license service
-5. User authenticates via OIDC
-6. License details auto-populate in wizard
-7. User completes setup normally
-8. Main application launches with full features
-
-**Benefits**:
-- No manual license key entry
-- Automatic organization detection
-- Seamless integration with existing identity providers
-- Familiar OAuth flow for enterprise users
-- Zero firewall configuration needed
-
-### Future Extensions
-
-**License Management**:
-- License status in settings panel
-- Usage metrics collection (with consent)
-- Feature flag management based on license tier
-- Automatic renewal notifications
-
-**Multi-tenancy**:
-- Organization-specific configurations
-- User-based feature access
-- Run log integration with license events
 
 ## Considerations for Cleanup
 
@@ -1160,81 +998,63 @@ Cross-platform builds are automatically created during GitHub releases.
 
 ---
 
-## Building with License Key
+## Run Log Signing (CFR 21 Part 11)
 
-Janus requires a license server public key to be embedded at build time for license validation. The key is embedded using Go's `//go:embed` directive.
-
-### Setup
-
-Place your license server public key at the project root:
+Janus can sign run log records so anyone reading them later can tell whether they
+have been altered, and who produced them. Signing is optional — Janus runs fine
+without it and records are simply unsigned.
 
 ```bash
-cp /path/to/master_public_key.pem .license_public_key.pem
+janus keys generate
 ```
 
-### Building
+That creates an RSA-2048 key, stores the private half in your OS credential store
+(Keychain, Credential Manager, or Secret Service), and binds an identity to it —
+seeded from your `git config user.email` if you have one.
+
+To let colleagues verify your records, send them:
 
 ```bash
-mage build
+janus keys export-public
 ```
 
-The build process will automatically detect `.license_public_key.pem` and embed it via `go:embed`.
+They add the output to the keyring at their `signing.keyring_path`. That keyring
+is what decides whose signatures they accept; a key it does not list reports as
+`Untrusted` rather than being silently accepted.
 
-### Verifying the Embedded Key
-
-```bash
-strings ./janus | grep "BEGIN PUBLIC KEY"
-```
-
-### CI/CD Pipeline
-
-The GitHub Actions workflows automatically write the public key from the `LICENSE_PUBLIC_KEY` repository secret to `.license_public_key.pem`, which is then embedded via `go:embed` during build.
-
----
-
-## Run Log Signing Keys (CFR 21 Part 11)
-
-For CFR 21 Part 11 compliance, Janus supports cryptographic signing of run log entries. This requires an RSA key pair:
-
-### Generating Keys
-
-**Important**: Use OpenSSL, not `ssh-keygen`. OpenSSH format keys are not supported.
-
-```bash
-# Generate private key (keep this secure!)
-openssl genrsa -out ~/.config/janus/signing-key.pem 2048
-
-# Extract public key (submit this when requesting a license)
-openssl rsa -in ~/.config/janus/signing-key.pem -pubout -out ~/.config/janus/signing-key.pub
-```
-
-### Configuration
-
-Add the private key path to your `config.yml`:
+On headless hosts — servers, containers, CI — there is no credential store, so
+point Janus at a key file instead:
 
 ```yaml
 signing:
-  private_key_path: ~/.config/janus/signing-key.pem
+  backend: file
+  private_key_path: ~/.config/janus/signing.pem
+  identity: you@example.com
 ```
 
-### License Generation
+Full details, including key rotation and moving a key between machines, are in
+[documentation/features/signing_keys.md](documentation/features/signing_keys.md).
 
-When requesting a license, provide your public key:
+---
 
-```bash
-./scripts/generate-license.sh --signing-key ~/.config/janus/signing-key.pub
-```
+## Contributing
 
-The public key is embedded in the JWT license. At startup, Janus validates that your configured private key matches the public key in your license.
+Contributions are welcome — particularly from people who actually run models and
+hit something that annoyed them.
 
-### How It Works
+- [CONTRIBUTING.md](CONTRIBUTING.md) — building, testing, and what reviewers look for
+- [SECURITY.md](SECURITY.md) — reporting a vulnerability (please not in a public issue)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
-1. User generates RSA key pair with OpenSSL
-2. Public key is submitted when requesting a license
-3. License JWT contains the embedded public key
-4. Janus validates private key matches license public key at startup
-5. Run log entries are signed with the private key on completion
-6. Signatures can be verified using the public key from the license
+For anything larger than a small fix, open an issue first. A clean clone builds
+with no credentials and no tokens; if it asks you for either, that is a bug.
+
+## License
+
+[MIT](LICENSE). Note that NONMEM itself is licensed commercial software: Janus
+neither includes nor redistributes it, and cannot ship a NONMEM container image.
+You supply your own — see
+[documentation/features/hermes/build-your-own-image.md](documentation/features/hermes/build-your-own-image.md).
 
 ---
 

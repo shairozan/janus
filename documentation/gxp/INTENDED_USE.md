@@ -72,7 +72,7 @@ Janus is a desktop workbench for pharmacometric modeling that provides:
 
 **Evidence Generation:**
 - Produce a cryptographically signed execution record for each run (RSA-SHA256 over the full record)
-- Bind each record to a signer identity (public key, SHA256 fingerprint, licensed user email, signing timestamp)
+- Bind each record to a signer identity (public key, SHA256 fingerprint, the identity bound to the signing key, signing timestamp)
 - Capture container provenance for containerized executions (image URI, tag, SHA digest)
 - Allow any party to verify a record's integrity and attribution without access to the signer's license
 
@@ -125,12 +125,17 @@ When used in GxP environments, Janus serves as a **qualified tool** in validated
 5. Control version and manage changes
 
 **Janus Provides:**
-- Validation support package (requirements, test results)
-- Customer qualification guide (IQ/OQ/PQ templates)
-- Technical support during qualification
-- Release notes and change documentation
+- Built-in IQ and OQ qualification runs (`janus` Settings, or `executor --executor-run-iq` /
+  `--executor-run-oq`), each writing a JSON report you can retain as evidence
+- A build-tagged requirements suite (`go test -tags validation ./internal/validation/...`)
+  you can run yourself and archive
+- Signed, chained run records with verifiable attribution
+- Release notes and a public, auditable change history
 
-See [Customer Qualification Guide](customer-qualification-guide.md) for details.
+**Janus does not provide** a supplier validation package, qualification templates, or
+technical support during qualification. It is community-supported open source with no
+vendor behind it. If your quality system expects supplier-provided evidence, you are the
+supplier for this tool: run the qualification tooling above and retain its output.
 
 ---
 
@@ -148,7 +153,7 @@ can rely on inside *their* validated environment.
 | Concern | Janus | Customer |
 |---|---|---|
 | Record integrity (tamper evidence) | Provides — RSA-SHA256 signature over the full run record | Verifies and retains |
-| Attribution (who ran it) | Provides — signer public key, fingerprint, licensed user email, signed-at timestamp | Maps licensed identity to their user directory |
+| Attribution (who ran it) | Provides — signer public key, fingerprint, the identity bound to the signing key, signed-at timestamp | Maps that identity to a real person, and controls who holds which key |
 | Reproducibility (what it ran on) | Provides — container image URI, tag, and SHA digest | Retains the image or registry reference |
 | Electronic signatures (§11.100, §11.200) | Not provided | Provides, if the predicate rule requires them |
 | Record-modification audit trail (§11.10(e)) | Not provided | Provides via QMS / validated system |
@@ -165,8 +170,12 @@ emits a signed execution record by design, so the customer does not have to cons
 hand or by script.
 
 **Customer Validation:** Customers qualify Janus as a tool used in GxP workflows, not as a Part 11 system.
-Per GAMP 5, customers may leverage supplier evidence (see the Validation Support Package) rather than
-re-deriving qualification themselves.
+
+Note the practical consequence of Janus being open source with no commercial supplier: there is
+no supplier audit to perform and no supplier evidence to leverage under GAMP 5. The qualification
+burden sits with you. What the project offers instead is transparency — the full source, a public
+change history, the IQ/OQ tooling described above, and a requirements suite you can execute and
+archive yourself.
 
 ---
 
@@ -196,10 +205,10 @@ Janus can optionally integrate with Hermes for containerized execution:
 **Author:** Janus maintainers  
 
 **Related Documents:**
-- INTENDED_USE.md - Detailed intended use statement
 - KNOWN_LIMITATIONS.md - Current limitations and workarounds
-- customer-qualification-guide.md - Site qualification procedures
-- Release Notes - Version-specific changes
+- [../features/iqoq.md](../features/iqoq.md) - How the IQ/OQ qualification runs work
+- [../features/signed_runlog.md](../features/signed_runlog.md) - What the signed run log guarantees
+- CHANGELOG.md - Version-specific changes
 
 ---
 

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Open sourced
+
+Janus is now MIT licensed. The licensing service, the management portal and every
+license check are gone: there is no license key, no activation and no phoning
+home. A clean clone builds with no credentials.
+
+**Breaking:**
+- The `--license` flag is removed from `janus`, `janus mcp server` and the
+  executor (`--executor-license`, `$JANUS_LICENSE`). Passing them is now an error.
+- Container image labels moved from `io.pharmalytica.janus.*` /
+  `com.pharmalytica.janus.*` to `io.github.shairozan.janus.*`. Images built with
+  the old labels are no longer discovered and must be relabelled.
+- The Go module is now `github.com/shairozan/janus`.
+- The macOS package identifier and Windows registry keys changed namespace, so an
+  upgrade installs alongside an existing install rather than replacing it.
+
+### Added
+- `janus keys` — generate, import, list, export and fingerprint the run-log
+  signing key, stored in the OS credential store (Keychain, Credential Manager,
+  Secret Service) with a file backend for headless hosts
+- Multi-user run-log verification. A user- or org-maintained keyring
+  (`signing.keyring_path`) replaces the license as the trust anchor, so colleagues
+  can verify each other's records and a rotated key keeps its history verifiable —
+  previously documented as unsupported
+- `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, issue and PR templates
+- `documentation/features/signing_keys.md`
+
 ### Added
 - Real-time output streaming for active NONMEM jobs
 - Live Output button in Active Local Executions table

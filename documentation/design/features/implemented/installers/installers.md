@@ -865,4 +865,4 @@ test-installer-linux.sh
 - FreeDesktop.org Shared MIME Info: https://specifications.freedesktop.org/shared-mime-info-spec/
 - Cobra CLI Framework: https://github.com/spf13/cobra
 - Fyne GUI Toolkit: https://fyne.io/
-- Current CLI implementation: [cmd/janus/root.go](../../cmd/janus/root.go)
+- Current CLI implementation: [cmd/janus/root.go](../../../../../cmd/root.go)

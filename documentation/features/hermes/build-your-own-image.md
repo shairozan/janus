@@ -37,7 +37,7 @@ on top. See the template for the full file.
    ```bash
    docker push my.registry/nonmem:7.5.1
    ```
-   If the registry is private, see [`DOCKER_PRIVATE_REPOS.md`](../../DOCKER_PRIVATE_REPOS.md)
+   If the registry is private, authenticate with `docker login <registry>` first.
    for authentication.
 4. **Point Janus at it** (next section).
 

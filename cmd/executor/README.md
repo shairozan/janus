@@ -337,7 +337,6 @@ Error: permission denied while trying to connect to Docker daemon
 
 ## Further Reading
 
-- [Technical Implementation Plan](../../documentation/features/supplementary_binaries/technical_implementation_plan.md)
-- [User Guide](../../documentation/features/supplementary_binaries/user_guide.md)
-- [Integration Examples](../../documentation/features/supplementary_binaries/integration_examples.md)
+- [Executor feature docs](../../documentation/features/executor/README.md)
+- [Hermes: build your own image](../../documentation/features/hermes/build-your-own-image.md)
 - [Main README](../../README.md#executor-binary)

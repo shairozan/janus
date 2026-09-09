@@ -184,5 +184,5 @@ This ensures users either get the command from the container or explicitly provi
 
 ## See Also
 
-- [Executor CLI](../cli/) - Command-line executor that uses Hermes transport
-- [Hermes Categorization](../hermes_categorization/) - Model platform detection
+- [Executor CLI](../executor/README.md) - Command-line executor that uses Hermes transport
+- [Hermes Categorization](../hermes/build-your-own-image.md) - Model platform detection
