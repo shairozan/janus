@@ -141,6 +141,9 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     container: ${{ matrix.container }}
+    # Without this a keychain prompt — or any other silent block — burns the
+    # six-hour default before anyone sees a failure.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -211,8 +214,18 @@ jobs:
           echo "$APP_P12" | base64 --decode > "$RUNNER_TEMP/application.p12"
           echo "$INSTALLER_P12" | base64 --decode > "$RUNNER_TEMP/installer.p12"
 
-          security import "$RUNNER_TEMP/application.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
-          security import "$RUNNER_TEMP/installer.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/productbuild
+          # Every tool that will actually *use* the private key must be listed
+          # here. A tool missing from this ACL does not fail — it raises a
+          # keychain authorization prompt that nothing on a runner can answer, and
+          # the job hangs until its timeout. productsign is the one that signs the
+          # .pkg; productbuild only assembles it and needs no key at all, which is
+          # why omitting productsign hung *after* "Product package created".
+          SIGNING_TOOLS="-T /usr/bin/codesign -T /usr/bin/productsign -T /usr/bin/productbuild -T /usr/bin/pkgbuild"
+
+          for p12 in application installer; do
+            # shellcheck disable=SC2086 # SIGNING_TOOLS is a deliberate argument list
+            security import "$RUNNER_TEMP/$p12.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" $SIGNING_TOOLS
+          done
 
           rm -f "$RUNNER_TEMP/application.p12" "$RUNNER_TEMP/installer.p12"
 
