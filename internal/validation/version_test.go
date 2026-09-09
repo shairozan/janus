@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pharmalytica/janus/internal/version"
+	"github.com/shairozan/janus/internal/version"
 )
 
 // TestREQ37_VersionInformationDisplay validates REQ-37: Version information display.

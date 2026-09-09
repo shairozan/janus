@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pharmalytica/janus/internal/model"
+	"github.com/shairozan/janus/internal/model"
 )
 
 // PatchOptions configures behavior for patching parameter estimates.

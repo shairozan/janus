@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // TestRealWorldCompression tests compression with actual NONMEM output files.

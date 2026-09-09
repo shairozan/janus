@@ -8,7 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // findHermesConfig locates .janus.config.json using a multi-strategy approach.

@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/runlog"
-	"github.com/pharmalytica/janus/internal/slurm"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/slurm"
 )
 
 // OutputHandler is a function type for handling streaming output.

@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution"
 )
 
 // TestREQ34_GracefulErrorHandling validates REQ-34: Graceful error handling.

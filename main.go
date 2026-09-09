@@ -9,7 +9,7 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/cmd"
+	"github.com/shairozan/janus/cmd"
 )
 
 func main() {

@@ -37,7 +37,7 @@ else
     cd ../..
     GOOS=linux GOARCH=amd64 CGO_ENABLED=1 go build \
         -o "janus-${TARGET_NAME}" \
-        -ldflags "-X github.com/pharmalytica/janus/internal/version.Version=${VERSION}" \
+        -ldflags "-X github.com/shairozan/janus/internal/version.Version=${VERSION}" \
         .
 
     if [ $? -ne 0 ]; then
@@ -69,7 +69,7 @@ else
     cd ../..
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
         -o "${EXECUTOR_BINARY}" \
-        -ldflags "-X github.com/pharmalytica/janus/internal/version.Version=${VERSION}" \
+        -ldflags "-X github.com/shairozan/janus/internal/version.Version=${VERSION}" \
         ./cmd/executor
 
     if [ $? -ne 0 ]; then

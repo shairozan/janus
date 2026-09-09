@@ -15,7 +15,7 @@
 - **Tests use the `unit` build tag.** Every test file starts with `//go:build unit` and `// +build unit`.
 - **Run tests with:** `go test -tags unit ./internal/runlog/`
 - **Reuse the existing test helpers** in `internal/runlog/signer_test.go`: `generateTestKeyPair(t)`, `writePrivateKeyPEM(t, path, key)`, `encodePublicKeyPEM(t, key)`. Do not write new ones.
-- **Module path is `github.com/pharmalytica/janus`** (unchanged despite the shairozan move).
+- **Module path is `github.com/shairozan/janus`** (unchanged despite the shairozan move).
 - **Hashing must use `json.Marshal` (compact), never `json.MarshalIndent`.** The file on disk is written with `MarshalIndent`; the *hash* must not depend on formatting.
 - **Existing failing regression test that this work must turn green:** `internal/runlog/update_signature_test.go` → `TestUpdateRunPreservesSignatureValidity`. It currently fails with `crypto/rsa: verification error`. Do not delete or weaken it.
 - Spec: `docs/superpowers/specs/2026-07-12-runlog-integrity-design.md`
@@ -91,7 +91,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 func TestRecordHashIsStableAndContentSensitive(t *testing.T) {
@@ -185,7 +185,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // RecordHash returns the hex SHA-256 of a record's canonical JSON encoding.
@@ -383,7 +383,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // newSignedStore returns a store with a signer configured, plus the public key PEM.
@@ -816,7 +816,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 func TestForgedRecordIsUntrustedNotValid(t *testing.T) {

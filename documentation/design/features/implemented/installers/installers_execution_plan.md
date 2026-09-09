@@ -536,7 +536,7 @@ Description: Pharmacometric modeling GUI
  Features include local and remote execution, grid scheduler integration,
  execution run logs, and self-validating state (IQ/OQ).
 Depends: libc6 (>= 2.31), libgl1, libx11-6, libxcursor1, libxrandr2, libxinerama1
-Homepage: https://github.com/pharmalytica/janus
+Homepage: https://github.com/shairozan/janus
 ```
 
 **3.3 Create Post-Installation Script** (`installer/linux/postinst`)
@@ -1315,7 +1315,7 @@ Add installation section:
 
 ### Windows
 
-1. Download the latest `janus-X.Y.Z-windows-amd64.msi` from [Releases](https://github.com/pharmalytica/janus/releases)
+1. Download the latest `janus-X.Y.Z-windows-amd64.msi` from [Releases](https://github.com/shairozan/janus/releases)
 2. Double-click the MSI file to launch the installer
 3. Follow the installation wizard
 4. Janus will be available in the Start Menu and accessible via `janus` command
@@ -1326,7 +1326,7 @@ Add installation section:
 
 ```bash
 # Download latest DEB package
-wget https://github.com/pharmalytica/janus/releases/latest/download/janus_X.Y.Z_amd64.deb
+wget https://github.com/shairozan/janus/releases/latest/download/janus_X.Y.Z_amd64.deb
 
 # Install
 sudo dpkg -i janus_X.Y.Z_amd64.deb
@@ -1339,7 +1339,7 @@ janus
 
 ```bash
 # Download latest release
-wget https://github.com/pharmalytica/janus/releases/latest/download/janus-X.Y.Z-darwin-$(uname -m).tar.gz
+wget https://github.com/shairozan/janus/releases/latest/download/janus-X.Y.Z-darwin-$(uname -m).tar.gz
 
 # Extract and install
 tar -xzf janus-X.Y.Z-darwin-$(uname -m).tar.gz
@@ -1415,7 +1415,7 @@ Simply download and run the new MSI installer. It will automatically detect and 
 
 ```bash
 # Download new DEB package
-wget https://github.com/pharmalytica/janus/releases/latest/download/janus_X.Y.Z_amd64.deb
+wget https://github.com/shairozan/janus/releases/latest/download/janus_X.Y.Z_amd64.deb
 
 # Upgrade
 sudo dpkg -i janus_X.Y.Z_amd64.deb

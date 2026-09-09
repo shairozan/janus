@@ -15,7 +15,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/pharmalytica/janus/internal/visualization"
+	"github.com/shairozan/janus/internal/visualization"
 )
 
 // paramCI is a parameter's bootstrap confidence interval.

@@ -37,7 +37,7 @@ func Build() error {
 		date = "unknown"
 	}
 
-	ldflags := fmt.Sprintf("-s -w -X github.com/pharmalytica/janus/internal/version.Version=dev -X github.com/pharmalytica/janus/internal/version.Commit=%s -X github.com/pharmalytica/janus/internal/version.Date=%s -X github.com/pharmalytica/janus/internal/version.BuiltBy=mage", commit, date)
+	ldflags := fmt.Sprintf("-s -w -X github.com/shairozan/janus/internal/version.Version=dev -X github.com/shairozan/janus/internal/version.Commit=%s -X github.com/shairozan/janus/internal/version.Date=%s -X github.com/shairozan/janus/internal/version.BuiltBy=mage", commit, date)
 
 	env := map[string]string{
 		"CGO_ENABLED": "1",
@@ -141,7 +141,7 @@ func Format() error {
 
 	// Run goimports on all files
 	fmt.Printf("📝 Running goimports on %d files...\n", len(goFiles))
-	goimportsArgs := append([]string{"-w", "-local", "github.com/pharmalytica/janus"}, goFiles...)
+	goimportsArgs := append([]string{"-w", "-local", "github.com/shairozan/janus"}, goFiles...)
 	if err := sh.RunV("goimports", goimportsArgs...); err != nil {
 		return fmt.Errorf("goimports failed: %w", err)
 	}
@@ -293,7 +293,7 @@ func Release(ctx context.Context, version string) error {
 		date = "unknown"
 	}
 
-	ldflags := fmt.Sprintf("-s -w -X github.com/pharmalytica/janus/internal/version.Version=%s -X github.com/pharmalytica/janus/internal/version.Commit=%s -X github.com/pharmalytica/janus/internal/version.Date=%s -X github.com/pharmalytica/janus/internal/version.BuiltBy=mage", version, commit, date)
+	ldflags := fmt.Sprintf("-s -w -X github.com/shairozan/janus/internal/version.Version=%s -X github.com/shairozan/janus/internal/version.Commit=%s -X github.com/shairozan/janus/internal/version.Date=%s -X github.com/shairozan/janus/internal/version.BuiltBy=mage", version, commit, date)
 
 	env := map[string]string{
 		"CGO_ENABLED": "1",
@@ -609,7 +609,7 @@ func Package(ctx context.Context, version string, ubuntuVersion string) error {
 		date = "unknown"
 	}
 
-	ldflags := fmt.Sprintf("-s -w -X github.com/pharmalytica/janus/internal/version.Version=%s -X github.com/pharmalytica/janus/internal/version.Commit=%s -X github.com/pharmalytica/janus/internal/version.Date=%s -X github.com/pharmalytica/janus/internal/version.BuiltBy=mage", version, commit, date)
+	ldflags := fmt.Sprintf("-s -w -X github.com/shairozan/janus/internal/version.Version=%s -X github.com/shairozan/janus/internal/version.Commit=%s -X github.com/shairozan/janus/internal/version.Date=%s -X github.com/shairozan/janus/internal/version.BuiltBy=mage", version, commit, date)
 
 	binaryName := fmt.Sprintf("janus-%s", targetUbuntu)
 	env := map[string]string{
@@ -683,7 +683,7 @@ Maintainer: dukeofubuntu <noreply@github.com>
 Description: Janus - NONMEM Grid Management Tool
  A modern, cost-effective replacement for Certara Pirana using Go + Fyne.io,
  with pluggable orchestrator backends and built-in CFR 21 Part 11 compliance.
-Homepage: https://github.com/pharmalytica/janus
+Homepage: https://github.com/shairozan/janus
 `, debVersion)
 
 	if err := os.WriteFile(controlFile, []byte(controlContent), 0644); err != nil {
@@ -737,10 +737,10 @@ func BuildExecutor() error {
 
 	ldflags := fmt.Sprintf(
 		"-s -w "+
-			"-X github.com/pharmalytica/janus/internal/version.Version=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.Commit=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.Date=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.BuiltBy=mage",
+			"-X github.com/shairozan/janus/internal/version.Version=%s "+
+			"-X github.com/shairozan/janus/internal/version.Commit=%s "+
+			"-X github.com/shairozan/janus/internal/version.Date=%s "+
+			"-X github.com/shairozan/janus/internal/version.BuiltBy=mage",
 		version, commit, date,
 	)
 
@@ -787,10 +787,10 @@ func BuildExecutorAll() error {
 
 	ldflags := fmt.Sprintf(
 		"-s -w "+
-			"-X github.com/pharmalytica/janus/internal/version.Version=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.Commit=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.Date=%s "+
-			"-X github.com/pharmalytica/janus/internal/version.BuiltBy=mage",
+			"-X github.com/shairozan/janus/internal/version.Version=%s "+
+			"-X github.com/shairozan/janus/internal/version.Commit=%s "+
+			"-X github.com/shairozan/janus/internal/version.Date=%s "+
+			"-X github.com/shairozan/janus/internal/version.BuiltBy=mage",
 		version, commit, date,
 	)
 

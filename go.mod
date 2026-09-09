@@ -1,4 +1,4 @@
-module github.com/pharmalytica/janus
+module github.com/shairozan/janus
 
 go 1.25.0
 

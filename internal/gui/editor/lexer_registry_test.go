@@ -6,7 +6,7 @@ package editor
 import (
 	"testing"
 
-	"github.com/pharmalytica/janus/internal/execution/category"
+	"github.com/shairozan/janus/internal/execution/category"
 )
 
 func TestLexerForCategory_NONMEM(t *testing.T) {

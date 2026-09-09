@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func TestSetOutputWriters(t *testing.T) {

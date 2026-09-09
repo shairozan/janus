@@ -51,11 +51,11 @@ cd /path/to/janus
 
 # Build Janus (GUI) - for Apple Silicon
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=1 go build -o janus-macos-arm64 \
-  -ldflags "-X github.com/pharmalytica/janus/internal/version.Version=0.2.0" .
+  -ldflags "-X github.com/shairozan/janus/internal/version.Version=0.2.0" .
 
 # Build Executor (CLI) - for Apple Silicon
 GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o executor-darwin-arm64 \
-  -ldflags "-X github.com/pharmalytica/janus/internal/version.Version=0.2.0" ./cmd/executor
+  -ldflags "-X github.com/shairozan/janus/internal/version.Version=0.2.0" ./cmd/executor
 ```
 
 ### Building for Different Architectures

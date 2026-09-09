@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/mcp"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/mcp"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // newServiceFixture builds a Service backed by a real temp-dir store (via the

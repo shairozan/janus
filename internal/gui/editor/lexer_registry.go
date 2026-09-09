@@ -1,7 +1,7 @@
 package editor
 
 import (
-	"github.com/pharmalytica/janus/internal/execution/category"
+	"github.com/shairozan/janus/internal/execution/category"
 )
 
 // LexerForCategory returns the appropriate lexer for a given model category.

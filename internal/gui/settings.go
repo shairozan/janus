@@ -18,12 +18,12 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/pirana"
-	"github.com/pharmalytica/janus/internal/qa"
-	"github.com/pharmalytica/janus/internal/qarun"
-	"github.com/pharmalytica/janus/internal/scheduler"
-	"github.com/pharmalytica/janus/internal/summary"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/pirana"
+	"github.com/shairozan/janus/internal/qa"
+	"github.com/shairozan/janus/internal/qarun"
+	"github.com/shairozan/janus/internal/scheduler"
+	"github.com/shairozan/janus/internal/summary"
 )
 
 // SettingsDialog represents the configuration settings editor dialog.

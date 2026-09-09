@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pharmalytica/janus/internal/qa"
-	"github.com/pharmalytica/janus/internal/qarun"
-	"github.com/pharmalytica/janus/internal/summary"
+	"github.com/shairozan/janus/internal/qa"
+	"github.com/shairozan/janus/internal/qarun"
+	"github.com/shairozan/janus/internal/summary"
 )
 
 // runQualification executes the headless IQ or OQ path and returns a process

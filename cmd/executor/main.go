@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func main() {

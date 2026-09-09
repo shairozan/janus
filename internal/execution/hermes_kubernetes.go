@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/kube"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/kube"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // hermesEndpoint is what an orchestrator (Docker container or Kubernetes pod)

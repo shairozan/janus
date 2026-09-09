@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // NONMEMCategory implements ModelCategory for NONMEM models (.mod, .ctl, .nmctl).

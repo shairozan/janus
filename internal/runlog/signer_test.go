@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // generateTestKeyPair generates an RSA key pair for testing.

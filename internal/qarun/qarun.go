@@ -15,9 +15,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution"
-	"github.com/pharmalytica/janus/internal/qa"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution"
+	"github.com/shairozan/janus/internal/qa"
 )
 
 // defaultHermesMemory is used when the global config does not specify one.

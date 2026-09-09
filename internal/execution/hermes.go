@@ -17,9 +17,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution/category"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution/category"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // HermesExecutor implements execution via Hermes gRPC container proxy.

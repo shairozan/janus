@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/gui/editor"
+	"github.com/shairozan/janus/internal/gui/editor"
 )
 
 //nolint:unparam // timeout is intentionally configurable for test flexibility

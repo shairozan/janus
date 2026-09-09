@@ -383,7 +383,7 @@ If omitted or invalid, defaults to `conservative`.
 ### API Usage
 
 ```go
-import "github.com/pharmalytica/janus/internal/comparison"
+import "github.com/shairozan/janus/internal/comparison"
 
 // Default (conservative)
 result, err := comparison.CompareRuns(records)
@@ -988,7 +988,7 @@ The executor is a supplementary binary that enables containerized execution with
 
 ### Installation
 
-Download the executor binary for your platform from the [releases page](https://github.com/pharmalytica/janus/releases):
+Download the executor binary for your platform from the [releases page](https://github.com/shairozan/janus/releases):
 
 **Linux (AMD64)**:
 ```bash

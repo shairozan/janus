@@ -9,8 +9,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/gui"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/gui"
 )
 
 func Command() *cobra.Command {

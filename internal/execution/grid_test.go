@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/remote"
-	"github.com/pharmalytica/janus/internal/scheduler"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/remote"
+	"github.com/shairozan/janus/internal/scheduler"
 )
 
 // fakeGridClient drives the GridExecutor lifecycle without a live scheduler.

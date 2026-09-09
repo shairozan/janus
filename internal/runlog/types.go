@@ -3,7 +3,7 @@ package runlog
 import (
 	"time"
 
-	"github.com/pharmalytica/janus/internal/model"
+	"github.com/shairozan/janus/internal/model"
 )
 
 // VerificationStatus represents the result of signature verification.

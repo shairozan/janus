@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/model"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/model"
 )
 
 // HermesPayload represents the complete workspace structure for Hermes execution.

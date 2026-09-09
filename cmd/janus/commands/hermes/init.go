@@ -11,7 +11,7 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // initCommand creates the 'janus hermes init' command.

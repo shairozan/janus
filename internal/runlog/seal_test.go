@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // newSignedStore returns a store with a signer configured, plus the public key PEM.

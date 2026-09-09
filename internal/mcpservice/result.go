@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pharmalytica/janus/internal/execution"
-	"github.com/pharmalytica/janus/internal/extraction"
-	"github.com/pharmalytica/janus/internal/mcp"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/execution"
+	"github.com/shairozan/janus/internal/extraction"
+	"github.com/shairozan/janus/internal/mcp"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // commandBuilder is implemented by the NONMEM/PSN/BBI executors. It lets the

@@ -1,6 +1,6 @@
 package config
 
-import "github.com/pharmalytica/janus/internal/runpolicy"
+import "github.com/shairozan/janus/internal/runpolicy"
 
 // RunPolicy builds the run-output policy from configuration, honoring the legacy
 // projects_config.auto-backup flag as a fallback for auto-backup. This is the

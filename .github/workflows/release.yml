@@ -172,10 +172,10 @@ jobs:
 
           # Build ldflags with version info
           LDFLAGS="-s -w"
-          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Version=${{ github.ref_name }}"
-          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Commit=${{ github.sha }}"
-          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-          LDFLAGS="$LDFLAGS -X github.com/pharmalytica/janus/internal/version.BuiltBy=github-actions"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.Version=${{ github.ref_name }}"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.Commit=${{ github.sha }}"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+          LDFLAGS="$LDFLAGS -X github.com/shairozan/janus/internal/version.BuiltBy=github-actions"
 
           go build -buildvcs=false -ldflags "$LDFLAGS" -o ${{ matrix.binary-name }} .
           echo "✅ Binary built successfully: ${{ matrix.binary-name }}"
@@ -213,7 +213,7 @@ jobs:
           Description: Janus - NONMEM Grid Management Tool
            A modern, cost-effective replacement for Certara Pirana using Go + Fyne.io,
            with pluggable orchestrator backends and built-in CFR 21 Part 11 compliance.
-          Homepage: https://github.com/pharmalytica/janus
+          Homepage: https://github.com/shairozan/janus
           EOF
 
           # Build .deb package
@@ -343,7 +343,7 @@ jobs:
 
             ### Using Go Install
             ```bash
-            go install github.com/pharmalytica/janus@${{ github.ref_name }}
+            go install github.com/shairozan/janus@${{ github.ref_name }}
             ```
 
         env:

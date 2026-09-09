@@ -9,13 +9,13 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/cmd/gui" // Still needed for gui.RunGUI()
-	"github.com/pharmalytica/janus/cmd/janus/commands/execute"
-	"github.com/pharmalytica/janus/cmd/janus/commands/hermes"
-	"github.com/pharmalytica/janus/cmd/janus/commands/mcp"
-	"github.com/pharmalytica/janus/cmd/janus/commands/validate"
-	"github.com/pharmalytica/janus/cmd/version"
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/cmd/gui" // Still needed for gui.RunGUI()
+	"github.com/shairozan/janus/cmd/janus/commands/execute"
+	"github.com/shairozan/janus/cmd/janus/commands/hermes"
+	"github.com/shairozan/janus/cmd/janus/commands/mcp"
+	"github.com/shairozan/janus/cmd/janus/commands/validate"
+	"github.com/shairozan/janus/cmd/version"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func Command() *cobra.Command {

@@ -10,8 +10,8 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/scheduler"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/scheduler"
 )
 
 // schedulerOptions returns the built-in scheduler names plus any configured

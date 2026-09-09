@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/mcpservice"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/mcpservice"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // The bridge/DTO/execute logic now lives in internal/mcpservice and is tested

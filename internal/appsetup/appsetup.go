@@ -10,9 +10,9 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/runlog"
-	"github.com/pharmalytica/janus/internal/signing"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // BuildSigner constructs the run-log signer from cfg. It returns (nil, nil) when

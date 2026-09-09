@@ -49,7 +49,7 @@ LABEL com.pharmalytica.janus.mock="true" \
       com.pharmalytica.janus.nonmem.version="mock-7.5" \
       org.opencontainers.image.title="Janus Mock NONMEM" \
       org.opencontainers.image.description="Mock NONMEM container for Janus testing" \
-      org.opencontainers.image.source="https://github.com/pharmalytica/janus"
+      org.opencontainers.image.source="https://github.com/shairozan/janus"
 
 # Hermes will serve on port 50051
 EXPOSE 50051

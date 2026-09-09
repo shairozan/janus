@@ -80,7 +80,7 @@ LABEL io.pharmalytica.janus.type="orchestrator" \
       io.pharmalytica.janus.display-name="Janus PsN orchestrator" \
       io.pharmalytica.janus.description="PsN + dummy compiler on Hermes, for the K8s bootstrap saga (no NONMEM/license)" \
       io.pharmalytica.psn.version="${PSN_VERSION}" \
-      org.opencontainers.image.source="https://github.com/pharmalytica/janus"
+      org.opencontainers.image.source="https://github.com/shairozan/janus"
 
 # Hermes serves on 50051 (inherited from the base image's default command).
 EXPOSE 50051

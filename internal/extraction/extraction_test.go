@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 func TestExtractSummary_NilRecord(t *testing.T) {

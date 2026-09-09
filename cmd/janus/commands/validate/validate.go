@@ -12,10 +12,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/qa"
-	"github.com/pharmalytica/janus/internal/qarun"
-	"github.com/pharmalytica/janus/internal/summary"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/qa"
+	"github.com/shairozan/janus/internal/qarun"
+	"github.com/shairozan/janus/internal/summary"
 )
 
 // Command returns the `validate` parent command.

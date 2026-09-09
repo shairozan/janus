@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // settingsFromKV extracts a Settings from a flattened, lower-cased key→value

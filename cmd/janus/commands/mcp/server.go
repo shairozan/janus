@@ -9,11 +9,11 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pharmalytica/janus/internal/appsetup"
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/mcp"
-	"github.com/pharmalytica/janus/internal/mcpservice"
-	"github.com/pharmalytica/janus/internal/version"
+	"github.com/shairozan/janus/internal/appsetup"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/mcp"
+	"github.com/shairozan/janus/internal/mcpservice"
+	"github.com/shairozan/janus/internal/version"
 )
 
 // serverCommand returns the `mcp server` command, which runs the MCP server

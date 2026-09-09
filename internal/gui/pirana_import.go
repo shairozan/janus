@@ -11,7 +11,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/pharmalytica/janus/internal/pirana"
+	"github.com/shairozan/janus/internal/pirana"
 )
 
 // importFromPirana runs Pirana detection and, on success, shows a migration

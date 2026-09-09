@@ -7,9 +7,9 @@ import (
 
 	"fyne.io/fyne/v2"
 
-	"github.com/pharmalytica/janus/internal/appsetup"
-	"github.com/pharmalytica/janus/internal/mcpservice"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/appsetup"
+	"github.com/shairozan/janus/internal/mcpservice"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // This file is the GUI's thin seam onto the shared, fyne-free mcpservice. The

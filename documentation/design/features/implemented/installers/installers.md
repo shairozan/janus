@@ -332,7 +332,7 @@ Description: Pharmacometric modeling GUI
  Features include local and remote execution, grid scheduler integration,
  execution run logs, and self-validating state (IQ/OQ).
 Depends: libc6 (>= 2.31)
-Homepage: https://github.com/pharmalytica/janus
+Homepage: https://github.com/shairozan/janus
 ```
 
 **usr/share/applications/janus.desktop**:

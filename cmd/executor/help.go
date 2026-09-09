@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/pharmalytica/janus/internal/version"
+	"github.com/shairozan/janus/internal/version"
 )
 
 // showExecutorHelp displays help text for the executor binary.
@@ -69,8 +69,8 @@ TOOL ARGUMENTS:
     container tool unchanged. executor does not interpret tool-specific flags.
 
 MORE INFO:
-    Documentation: https://github.com/pharmalytica/janus
-    Report issues: https://github.com/pharmalytica/janus/issues
+    Documentation: https://github.com/shairozan/janus
+    Report issues: https://github.com/shairozan/janus/issues
 `)
 }
 

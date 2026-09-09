@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 // CLIClient implements the Client interface using SLURM CLI commands.

@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution/category"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution/category"
 )
 
 // TestReadLicenseFile tests reading NONMEM license files.

@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/model"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/model"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // HighlightLevel indicates the severity of a parameter change.

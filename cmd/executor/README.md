@@ -107,10 +107,10 @@ mage buildExecutorAll
 **Manual build:**
 ```bash
 go build -ldflags "-s -w \
-  -X github.com/pharmalytica/janus/internal/version.Version=dev \
-  -X github.com/pharmalytica/janus/internal/version.Commit=$(git rev-parse HEAD) \
-  -X github.com/pharmalytica/janus/internal/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ') \
-  -X github.com/pharmalytica/janus/internal/version.BuiltBy=local" \
+  -X github.com/shairozan/janus/internal/version.Version=dev \
+  -X github.com/shairozan/janus/internal/version.Commit=$(git rev-parse HEAD) \
+  -X github.com/shairozan/janus/internal/version.Date=$(date -u '+%Y-%m-%dT%H:%M:%SZ') \
+  -X github.com/shairozan/janus/internal/version.BuiltBy=local" \
   -o executor ./cmd/executor
 ```
 

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // Service provides model summarization functionality with run log integration.

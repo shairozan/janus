@@ -77,7 +77,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 type SettingsDialog struct {
@@ -542,7 +542,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func TestSettingsDialog_Validate(t *testing.T) {
@@ -903,7 +903,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func TestSettingsSaveLoad_Integration(t *testing.T) {
@@ -991,7 +991,7 @@ import (
 	"fyne.io/fyne/v2/test"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func TestSettingsDialog_UIInteraction(t *testing.T) {

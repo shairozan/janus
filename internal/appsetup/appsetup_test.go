@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pharmalytica/janus/internal/appsetup"
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/appsetup"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // writeKeyPair generates an RSA key, writes the private half to a PEM file, and

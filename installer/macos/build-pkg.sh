@@ -289,7 +289,7 @@ cat > "$BUILD_DIR/conclusion.html" <<EOF
         <li><code>executor</code> - Command-line executor for grid systems</li>
     </ul>
     <p>You can launch Janus by running <code>janus</code> from the Terminal.</p>
-    <p>For more information, visit the <a href="https://github.com/pharmalytica/janus">Janus GitHub repository</a>.</p>
+    <p>For more information, visit the <a href="https://github.com/shairozan/janus">Janus GitHub repository</a>.</p>
 </body>
 </html>
 EOF

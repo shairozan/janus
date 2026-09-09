@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pharmalytica/janus/internal/model"
+	"github.com/shairozan/janus/internal/model"
 )
 
 // CorrelationStrategy defines how parameters are matched between source and target.

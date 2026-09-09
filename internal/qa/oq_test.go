@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/execution"
-	"github.com/pharmalytica/janus/internal/model"
-	"github.com/pharmalytica/janus/internal/summary"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/execution"
+	"github.com/shairozan/janus/internal/model"
+	"github.com/shairozan/janus/internal/summary"
 )
 
 func mockLstPath() string {

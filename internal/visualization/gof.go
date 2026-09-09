@@ -7,7 +7,7 @@ import (
 
 	"github.com/vicanso/go-charts/v2"
 
-	"github.com/pharmalytica/janus/internal/tables"
+	"github.com/shairozan/janus/internal/tables"
 )
 
 // GOFPlotType identifies the type of GOF plot.

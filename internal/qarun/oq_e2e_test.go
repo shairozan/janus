@@ -9,9 +9,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/pharmalytica/janus/internal/config"
-	"github.com/pharmalytica/janus/internal/qa"
-	"github.com/pharmalytica/janus/internal/summary"
+	"github.com/shairozan/janus/internal/config"
+	"github.com/shairozan/janus/internal/qa"
+	"github.com/shairozan/janus/internal/summary"
 )
 
 // TestOQ_EndToEnd_MockNONMEM runs the full OQ functional loop — materialize the

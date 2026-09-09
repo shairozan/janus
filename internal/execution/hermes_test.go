@@ -3,7 +3,7 @@ package execution
 import (
 	"testing"
 
-	"github.com/pharmalytica/janus/internal/config"
+	"github.com/shairozan/janus/internal/config"
 )
 
 func TestParseImageReference(t *testing.T) {

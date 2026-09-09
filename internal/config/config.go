@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/pharmalytica/janus/internal/scheduler"
-	"github.com/pharmalytica/janus/internal/version"
+	"github.com/shairozan/janus/internal/scheduler"
+	"github.com/shairozan/janus/internal/version"
 )
 
 // Execution mode constants.

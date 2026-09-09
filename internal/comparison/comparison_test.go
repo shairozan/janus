@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pharmalytica/janus/internal/model"
-	"github.com/pharmalytica/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/model"
+	"github.com/shairozan/janus/internal/runlog"
 )
 
 // Helper to create a pointer to a float64.
