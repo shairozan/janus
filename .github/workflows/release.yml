@@ -276,8 +276,18 @@ jobs:
           fi
 
           KEY_PATH="$RUNNER_TEMP/asc-api-key.p8"
-          printf '%s' "$API_KEY_P8" > "$KEY_PATH"
+          # printf '%s\n' rather than '%s': a secret often arrives with its
+          # trailing newline stripped, and a PEM whose END line has no newline is
+          # rejected by some parsers. An extra blank line is harmless.
+          printf '%s\n' "$API_KEY_P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
           trap 'rm -f "$KEY_PATH"' EXIT
+
+          if ! grep -q "BEGIN PRIVATE KEY" "$KEY_PATH"; then
+            echo "::error::APPLE_API_KEY_P8 does not look like a PEM private key."
+            echo "It must be the full contents of the AuthKey_*.p8 file, including the BEGIN/END lines."
+            exit 1
+          fi
 
           # --wait blocks for Apple's verdict, so a rejection fails the release
           # here rather than shipping something Gatekeeper will refuse.
