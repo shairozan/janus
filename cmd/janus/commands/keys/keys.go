@@ -210,7 +210,11 @@ that signed them.`,
 				return err
 			}
 
-			backend, enabled := config.ResolveSigningBackend(cfg)
+			backend, enabled, err := config.ResolveSigningBackend(cfg)
+			if err != nil {
+				return err
+			}
+
 			if !enabled {
 				c.Println("No signing key is configured — run log records are unsigned.")
 				c.Println()
@@ -343,11 +347,11 @@ func storeKey(identity string, keyPEM []byte) error {
 		return nil
 	}
 
-	if strings.Contains(err.Error(), "too big") {
+	if errors.Is(err, signing.ErrKeyTooLarge) {
 		return fmt.Errorf("%w\n"+
-			"  This key is too large for the OS credential store (Windows Credential Manager\n"+
-			"  caps an entry at 2560 bytes; this key's PEM is %d). Either use an RSA-2048 key,\n"+
-			"  or keep this one in a file and set signing.private_key_path instead.", err, len(keyPEM))
+			"  Windows Credential Manager caps an entry at 2560 bytes; this key's PEM is %d.\n"+
+			"  Either use an RSA-2048 key, or keep this one in a file and set\n"+
+			"  signing.private_key_path instead.", err, len(keyPEM))
 	}
 
 	return err
@@ -416,7 +420,11 @@ func configuredSigner(cfgPtr **config.Config) (*signing.Signer, config.SigningCo
 		return nil, config.SigningConfig{}, err
 	}
 
-	backend, enabled := config.ResolveSigningBackend(cfg)
+	backend, enabled, err := config.ResolveSigningBackend(cfg)
+	if err != nil {
+		return nil, cfg, err
+	}
+
 	if !enabled {
 		return nil, cfg, errors.New("no signing key is configured; run 'janus keys generate' to create one")
 	}

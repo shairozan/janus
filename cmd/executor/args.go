@@ -15,6 +15,11 @@ type ExecutorFlags struct {
 	NoRunlog     bool   // Skip runlog update via --executor-no-runlog
 	RunIQ        bool   // Run Installation Qualification via --executor-run-iq
 	RunOQ        bool   // Run Operational Qualification via --executor-run-oq
+
+	// RetiredLicense records that --executor-license was passed. Janus no longer
+	// uses a license; the flag is accepted and ignored so that existing wrapper
+	// scripts keep working, and main warns once rather than failing.
+	RetiredLicense bool
 }
 
 // parseExecutorFlags separates executor-specific flags from container arguments.
@@ -43,6 +48,21 @@ func parseExecutorFlags(args []string) (ExecutorFlags, []string) {
 			flags.RunIQ = true
 		case arg == "--executor-run-oq":
 			flags.RunOQ = true
+
+		// Retired: Janus no longer requires a license. Still consumed here, with
+		// its value, so it cannot reach the container. Letting it fall through to
+		// the default branch would forward "--executor-license" to nmfe as a
+		// control-stream filename and displace the real model path, turning a
+		// removed flag into an opaque NONMEM failure for anyone whose wrapper
+		// script still passes it.
+		case strings.HasPrefix(arg, "--executor-license="):
+			flags.RetiredLicense = true
+		case arg == "--executor-license":
+			flags.RetiredLicense = true
+
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++ // consume its value too
+			}
 
 		// --executor-hermes-config with = syntax
 		case strings.HasPrefix(arg, "--executor-hermes-config="):

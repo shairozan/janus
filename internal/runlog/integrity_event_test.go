@@ -13,7 +13,7 @@ import (
 
 func TestDetectedGapIsRecordedIntoTheChain(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 3)
@@ -51,7 +51,7 @@ func TestDetectedGapIsRecordedIntoTheChain(t *testing.T) {
 
 func TestNoIntegrityEventWhenChainIsFine(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	sealN(t, store, 2)
@@ -69,7 +69,7 @@ func TestNoIntegrityEventWhenChainIsFine(t *testing.T) {
 
 func TestIntegrityEventIsNotDuplicatedOnRepeatedVerification(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 3)
@@ -115,7 +115,7 @@ func TestAppendIntegrityEventRequiresASigner(t *testing.T) {
 	// signing.private_key_path is unset, so BuildSigner errors while
 	// BuildTrustStore succeeds.
 	signedStore, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, signedStore, 3)
@@ -162,7 +162,7 @@ func TestUntrustedHeadDoesNotWriteAnIntegrityEvent(t *testing.T) {
 	store, _ := newSignedStore(t)
 
 	_, otherPublicKey := generateTestKeyPair(t)
-	otherTrust, err := NewLicenseTrust(encodePublicKeyPEM(t, otherPublicKey), "bob@example.com")
+	otherTrust, err := singleKeyTrust(encodePublicKeyPEM(t, otherPublicKey), "bob@example.com")
 	require.NoError(t, err)
 
 	sealN(t, store, 3)
@@ -201,7 +201,7 @@ func TestUntrustedHeadDoesNotWriteAnIntegrityEvent(t *testing.T) {
 // one event.
 func TestGenuineBreakStillWritesAnIntegrityEvent(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 3)
@@ -233,7 +233,7 @@ func TestGenuineBreakStillWritesAnIntegrityEvent(t *testing.T) {
 // that's exactly what ChainReport.healedSincePriorCheck exists to carry.
 func TestBreakRecurrenceAfterHealIsRecorded(t *testing.T) {
 	store, publicKeyPEM := newSignedStore(t)
-	trust, err := NewLicenseTrust(publicKeyPEM, "johnny@example.com")
+	trust, err := singleKeyTrust(publicKeyPEM, "johnny@example.com")
 	require.NoError(t, err)
 
 	records := sealN(t, store, 3)

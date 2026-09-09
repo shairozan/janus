@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/shairozan/janus/internal/config"
@@ -76,7 +77,11 @@ func TestResolveSigningBackend(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			backend, enabled := config.ResolveSigningBackend(tt.cfg)
+			backend, enabled, err := config.ResolveSigningBackend(tt.cfg)
+
+			if err != nil {
+				t.Fatalf("ResolveSigningBackend: %v", err)
+			}
 
 			if enabled != tt.wantEnabled {
 				t.Errorf("enabled = %v, want %v", enabled, tt.wantEnabled)
@@ -86,5 +91,29 @@ func TestResolveSigningBackend(t *testing.T) {
 				t.Errorf("backend = %q, want %q", backend, tt.wantBackend)
 			}
 		})
+	}
+}
+
+// TestUnknownSigningBackendIsRejected pins the fix for a silent misconfiguration:
+// a typo'd backend used to fall through to inference and could select the other
+// backend entirely, signing with a stale key file under a different fingerprint.
+func TestUnknownSigningBackendIsRejected(t *testing.T) {
+	cfg := config.SigningConfig{
+		Backend:        "keyring", // a plausible typo for "keychain"
+		Identity:       "modeler@example.com",
+		PrivateKeyPath: "/keys/old-signing.pem",
+	}
+
+	backend, enabled, err := config.ResolveSigningBackend(cfg)
+	if err == nil {
+		t.Fatalf("an unknown backend must be an error; got backend=%q enabled=%v", backend, enabled)
+	}
+
+	if !errors.Is(err, config.ErrUnknownSigningBackend) {
+		t.Errorf("error = %v, want it to wrap ErrUnknownSigningBackend", err)
+	}
+
+	if enabled {
+		t.Error("an unresolvable backend must not report signing as enabled")
 	}
 }

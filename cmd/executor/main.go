@@ -11,6 +11,12 @@ func main() {
 	// 1. Parse arguments - separate executor flags from container args
 	execFlags, containerArgs := parseExecutorFlags(os.Args[1:])
 
+	if execFlags.RetiredLicense {
+		fmt.Fprintln(os.Stderr,
+			"Warning: --executor-license is no longer used and was ignored. "+
+				"Janus does not require a license; you can drop the flag.")
+	}
+
 	// 2. Handle executor-specific commands
 	if execFlags.Help {
 		showExecutorHelp()

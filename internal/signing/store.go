@@ -30,6 +30,16 @@ const KeyBits = 2048
 // the two need different advice: generate a key, versus fix the environment.
 var ErrNoStoredKey = errors.New("no signing key in the credential store for this identity")
 
+// ErrKeyTooLarge reports that the key exceeds what the OS credential store will
+// hold — Windows Credential Manager caps an entry at 2560 bytes, which an
+// RSA-4096 PEM (~3.2KB) exceeds. Callers translate this into advice about the
+// file backend.
+//
+// It exists so callers can branch with errors.Is rather than matching the
+// backend library's error text, and so nothing outside this package needs to
+// import the keyring library to recognise the case.
+var ErrKeyTooLarge = errors.New("signing key is too large for the OS credential store")
+
 // GenerateKey creates a new RSA signing key. See KeyBits for the size rationale.
 func GenerateKey() (*rsa.PrivateKey, error) {
 	key, err := rsa.GenerateKey(rand.Reader, KeyBits)
@@ -71,6 +81,10 @@ func StoreKey(identity string, privateKeyPEM []byte) error {
 	}
 
 	if err := keyring.Set(credentialService, identity, string(privateKeyPEM)); err != nil {
+		if errors.Is(err, keyring.ErrSetDataTooBig) {
+			return fmt.Errorf("%w (%d bytes): %w", ErrKeyTooLarge, len(privateKeyPEM), err)
+		}
+
 		return fmt.Errorf("writing the signing key to the credential store: %w", err)
 	}
 

@@ -86,9 +86,17 @@ Protect it with filesystem permissions the way you would an SSH private key
 (`chmod 600`). Both backends produce identical signatures; nothing downstream
 knows or cares which was used.
 
+`identity` is **required** whenever signing is configured, on either backend.
+Janus refuses to start signing without one rather than writing records with an
+empty `signer_email` — an unsigned run can be re-run, but a signed record with no
+attribution is a gap in the audit trail that cannot be repaired afterwards. If you
+are upgrading from a config that only had `private_key_path`, add the identity
+that owns that key.
+
 If you omit `backend`, Janus infers it: a `private_key_path` means the file
-backend, an `identity` alone means the credential store. Configs written before
-the credential store existed therefore keep working untouched.
+backend, an `identity` alone means the credential store. A `backend` value that
+is neither `file` nor `keychain` is an error rather than something Janus guesses
+past, since silently picking the other backend would sign with the wrong key.
 
 ### Key size
 

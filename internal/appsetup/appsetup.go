@@ -28,9 +28,32 @@ func BuildSigner(cfg *config.Config) (*signing.Signer, error) {
 		return nil, nil
 	}
 
-	backend, enabled := config.ResolveSigningBackend(cfg.Signing)
+	backend, enabled, err := config.ResolveSigningBackend(cfg.Signing)
+	if err != nil {
+		return nil, err
+	}
+
 	if !enabled {
 		return nil, nil // signing disabled
+	}
+
+	// Refuse to sign without an identity rather than recording an empty one.
+	//
+	// The keychain backend cannot reach here without one (it is keyed by
+	// identity), but the file backend can: signing.private_key_path alone was the
+	// whole configuration before the identity existed, and such a config still
+	// resolves to a usable signer. Signing it anyway would write records whose
+	// signer_email is "", silently dropping the attribution those records exist to
+	// carry — and doing so only for upgrading users, which is the worst way to
+	// lose it. Failing here is loud, actionable, and leaves already-signed records
+	// untouched.
+	if cfg.Signing.Identity == "" {
+		return nil, fmt.Errorf(
+			"signing.identity is required to sign run log records, and is not set; "+
+				"without it every record would be signed with no attribution. "+
+				"Add the identity that owns %s to your config:\n"+
+				"  signing:\n"+
+				"    identity: you@example.com", cfg.Signing.PrivateKeyPath)
 	}
 
 	switch backend {

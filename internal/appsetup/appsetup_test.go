@@ -287,3 +287,69 @@ func TestMissingStoredKeyExplainsItself(t *testing.T) {
 		t.Errorf("error does not say how to fix it: %v", err)
 	}
 }
+
+// TestFileBackendWithoutIdentityRefusesToSign pins the fix for a silent
+// attribution loss.
+//
+// A config carried over from before signing.identity existed holds only
+// private_key_path, and that still resolves to a usable file-backed signer. It
+// used to sign happily with SignerIdentity() == "", so every new record went to
+// disk with an empty signer_email while older records had a real one — no error,
+// no warning, and only for upgrading users. Failing loudly is the right trade:
+// an unsigned run is recoverable, an unattributed signed record is not.
+func TestFileBackendWithoutIdentityRefusesToSign(t *testing.T) {
+	dir := t.TempDir()
+	privatePath, _ := writeKeyPair(t, dir, "legacy")
+
+	cfg := &config.Config{}
+	cfg.Signing.PrivateKeyPath = privatePath // exactly the pre-upgrade shape
+
+	signer, err := appsetup.BuildSigner(cfg)
+	if err == nil {
+		t.Fatal("a file-backed key with no identity must not produce a signer that records empty attribution")
+	}
+
+	if signer != nil {
+		t.Error("no signer may be returned alongside the error")
+	}
+
+	if !strings.Contains(err.Error(), "signing.identity") {
+		t.Errorf("the error must name the setting to add; got: %v", err)
+	}
+}
+
+// TestFileBackendWithIdentitySigns is the other half: the same config with an
+// identity added works, so the fix above is a prompt to configure rather than a
+// removal of the file backend.
+func TestFileBackendWithIdentitySigns(t *testing.T) {
+	dir := t.TempDir()
+	privatePath, publicPEM := writeKeyPair(t, dir, "legacy")
+
+	cfg := &config.Config{}
+	cfg.Signing.PrivateKeyPath = privatePath
+	cfg.Signing.Identity = "modeler@example.com"
+	cfg.Signing.KeyringPath = writeKeyring(t, dir, "modeler@example.com", publicPEM)
+
+	signer, err := appsetup.BuildSigner(cfg)
+	if err != nil {
+		t.Fatalf("BuildSigner: %v", err)
+	}
+
+	record := &runlog.RunRecord{ID: "run-legacy", ModelFile: "model.mod"}
+	if err := runlog.SignRecordWithInfo(record, signer, appsetup.SignerIdentity(cfg)); err != nil {
+		t.Fatalf("signing record: %v", err)
+	}
+
+	if record.SignerEmail != "modeler@example.com" {
+		t.Errorf("SignerEmail = %q, want the configured identity", record.SignerEmail)
+	}
+
+	trust, err := appsetup.BuildTrustStore(cfg)
+	if err != nil {
+		t.Fatalf("BuildTrustStore: %v", err)
+	}
+
+	if result := runlog.VerifyRecordStatus(record, trust); result.Status != runlog.VerificationValid {
+		t.Errorf("VerifyRecordStatus = %v (%s), want Valid", result.Status, result.Message)
+	}
+}

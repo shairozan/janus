@@ -925,26 +925,41 @@ const (
 	SigningBackendFile = "file"
 )
 
+// ErrUnknownSigningBackend reports a signing.backend value that names neither
+// supported backend.
+var ErrUnknownSigningBackend = errors.New("unknown signing backend")
+
 // ResolveSigningBackend reports which backend cfg selects, and whether signing is
 // configured at all. An explicit Backend wins; otherwise a PrivateKeyPath means
 // file and an Identity alone means keychain.
-func ResolveSigningBackend(cfg SigningConfig) (backend string, enabled bool) {
+//
+// An unrecognised Backend is an error rather than something to infer past. A
+// typo such as "keyring" for "keychain" would otherwise fall through to the
+// inference below and quietly select the *other* backend — signing with a stale
+// key file instead of the credential-store key the user asked for, under a
+// different fingerprint, with no diagnostic.
+func ResolveSigningBackend(cfg SigningConfig) (backend string, enabled bool, err error) {
 	switch cfg.Backend {
 	case SigningBackendKeychain:
-		return SigningBackendKeychain, cfg.Identity != ""
+		return SigningBackendKeychain, cfg.Identity != "", nil
 	case SigningBackendFile:
-		return SigningBackendFile, cfg.PrivateKeyPath != ""
+		return SigningBackendFile, cfg.PrivateKeyPath != "", nil
+	case "":
+		// Nothing declared — infer from what else is configured.
+	default:
+		return "", false, fmt.Errorf("%w %q (want %q or %q)",
+			ErrUnknownSigningBackend, cfg.Backend, SigningBackendKeychain, SigningBackendFile)
 	}
 
 	if cfg.PrivateKeyPath != "" {
-		return SigningBackendFile, true
+		return SigningBackendFile, true, nil
 	}
 
 	if cfg.Identity != "" {
-		return SigningBackendKeychain, true
+		return SigningBackendKeychain, true, nil
 	}
 
-	return "", false
+	return "", false, nil
 }
 
 // ExpandSigningKeyringPath expands the home directory in the signing keyring path.
