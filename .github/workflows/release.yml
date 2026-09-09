@@ -18,7 +18,7 @@ jobs:
   validation:
     needs: tests
     runs-on: ubuntu-latest
-    container: dukeofubuntu/janus-ci:ubuntu22
+    container: ghcr.io/shairozan/janus-ci:ubuntu22
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -104,19 +104,19 @@ jobs:
         include:
           # Linux builds using Docker containers
           - os: ubuntu-latest
-            container: "dukeofubuntu/janus-ci:ubuntu20"
+            container: "ghcr.io/shairozan/janus-ci:ubuntu20"
             target-name: "ubuntu2004"
             binary-name: "janus-ubuntu2004"
             goos: linux
             goarch: amd64
           - os: ubuntu-latest
-            container: "dukeofubuntu/janus-ci:ubuntu22"
+            container: "ghcr.io/shairozan/janus-ci:ubuntu22"
             target-name: "ubuntu2204"
             binary-name: "janus-ubuntu2204"
             goos: linux
             goarch: amd64
           - os: ubuntu-latest
-            container: "dukeofubuntu/janus-ci:ubuntu24"
+            container: "ghcr.io/shairozan/janus-ci:ubuntu24"
             target-name: "ubuntu2404"
             binary-name: "janus-ubuntu2404"
             goos: linux

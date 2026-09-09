@@ -1,7 +1,7 @@
 # Dockerfile.dev - Local development image with cached Go modules
 # Based on the CI image but with project dependencies pre-installed
 
-FROM dukeofubuntu/janus-ci:latest-ubuntu24
+FROM ghcr.io/shairozan/janus-ci:latest-ubuntu24
 
 # Set environment variables for consistent builds
 ENV CGO_ENABLED=1

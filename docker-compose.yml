@@ -40,7 +40,7 @@ services:
 
   # Integration test services using Janus CI image
   integration-tests:
-    image: dukeofubuntu/janus-ci:latest-ubuntu24
+    image: ghcr.io/shairozan/janus-ci:latest-ubuntu24
     volumes:
       - .:/app
     working_dir: /app
@@ -55,7 +55,7 @@ services:
 
   # Unit tests in container
   unit-tests:
-    image: dukeofubuntu/janus-ci:latest-ubuntu24
+    image: ghcr.io/shairozan/janus-ci:latest-ubuntu24
     volumes:
       - .:/app
     working_dir: /app
@@ -69,7 +69,7 @@ services:
 
   # All tests (unit + integration)
   all-tests:
-    image: dukeofubuntu/janus-ci:latest-ubuntu24
+    image: ghcr.io/shairozan/janus-ci:latest-ubuntu24
     volumes:
       - .:/app
     working_dir: /app
@@ -84,7 +84,7 @@ services:
 
   # Validation tests
   validation-tests:
-    image: dukeofubuntu/janus-ci:latest-ubuntu24
+    image: ghcr.io/shairozan/janus-ci:latest-ubuntu24
     volumes:
       - .:/app
     working_dir: /app

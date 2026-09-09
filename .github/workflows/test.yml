@@ -12,7 +12,7 @@ jobs:
   # Test Janus GUI
   test-janus:
     runs-on: ubuntu-latest
-    container: dukeofubuntu/janus-ci:ubuntu22
+    container: ghcr.io/shairozan/janus-ci:ubuntu22
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

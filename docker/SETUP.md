@@ -1,117 +1,90 @@
-# Docker Hub Setup for Janus CI
+# CI image setup
 
-This guide walks through setting up Docker Hub integration for the Janus CI/CD pipeline.
+The CI images live in this repository's own GitHub Container Registry namespace:
 
-## 1. Create Docker Hub Account and Repository
-
-1. **Create/Login to Docker Hub**: Go to [hub.docker.com](https://hub.docker.com)
-2. **Create Repository**: Create a new public repository named `janus-ci`
-3. **Create Access Token**: Go to Account Settings → Security → Access Tokens
-   - Name: `github-actions-janus`
-   - Permissions: `Read, Write, Delete`
-   - **Save the token securely** - you'll need it for GitHub secrets
-
-## 2. Configure GitHub Secrets
-
-In your GitHub repository settings, add these secrets:
-
-### Repository Secrets
-
-Go to: **Settings** → **Secrets and Variables** → **Actions** → **New repository secret**
-
-Add these two secrets:
-
-| Secret Name | Value | Description |
-|-------------|-------|-------------|
-| `DOCKERHUB_USERNAME` | Your Docker Hub username | Used for docker login |
-| `DOCKERHUB_TOKEN` | The access token from step 1 | Authentication token |
-
-### Example:
 ```
-DOCKERHUB_USERNAME: shairozan
-DOCKERHUB_TOKEN: dckr_pat_abc123xyz789... (your token)
+ghcr.io/shairozan/janus-ci:ubuntu20
+ghcr.io/shairozan/janus-ci:ubuntu22
+ghcr.io/shairozan/janus-ci:ubuntu24
 ```
 
-## 3. Test the Setup
+**There are no secrets to configure.** `.github/workflows/docker-build.yml`
+authenticates with the `GITHUB_TOKEN` that GitHub issues to every workflow run,
+so publishing needs no account, no access token, and nothing that can expire. A
+fork publishes to its own namespace with the same zero setup.
 
-1. **Push to main branch** with Docker file changes to trigger build
-2. **Check Actions tab** for the "Build Docker Images" workflow
-3. **Verify images** are pushed to Docker Hub at:
-   - `shairozan/janus-ci:ubuntu20`
-   - `shairozan/janus-ci:ubuntu22`
-   - `shairozan/janus-ci:ubuntu24`
+## Building the images
 
-## 4. Using Images in CI
+The workflow runs weekly, and on demand:
 
-Once images are built and pushed, update your workflows:
+**Actions → Build Docker Images → Run workflow**
 
-```yaml
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    container: shairozan/janus-ci:ubuntu22
-    steps:
-      - uses: actions/checkout@v4
-      - run: mage unit
-```
+It builds Ubuntu 20.04, 22.04 and 24.04 in parallel, smoke-tests each one (Go,
+GCC, OpenGL, X11, mage, Xvfb), and pushes them.
 
-## 5. Manual Image Building
+## Make the packages public — the one manual step
 
-If you need to build/push manually:
+**A newly published GHCR package is private, even when the repository is public.**
+Nothing warns you. Everything that consumes the images then fails to pull them
+with an authentication error that looks like a broken workflow rather than a
+permissions setting.
+
+After the first successful build, for each of the three packages:
+
+1. Go to the repository → **Packages** (right-hand sidebar), or
+   `https://github.com/users/shairozan/packages`
+2. Open `janus-ci` → **Package settings**
+3. Under **Danger Zone** → **Change visibility** → **Public**
+
+This is needed once per package, not per build. If a workflow that used to work
+suddenly cannot pull an image, check this first.
+
+## Who consumes these images
+
+| Consumer | Reference |
+|---|---|
+| `.github/workflows/test.yml` | `ubuntu22` |
+| `.github/workflows/release.yml` | `ubuntu20`, `ubuntu22`, `ubuntu24` |
+| `docker-compose.yml` | `latest-ubuntu24` |
+| `docker/Dockerfile.dev` | `latest-ubuntu24` |
+| `magefiles/docker.go` | `latest-ubuntu20/22/24` |
+
+These all point at `ghcr.io/shairozan/janus-ci` explicitly rather than at the
+current repository owner, so a fork's CI pulls the working upstream images
+instead of needing to build its own first. Only the publishing workflow uses the
+fork's own namespace.
+
+## Building locally
+
+You do not need the registry to work on the images:
 
 ```bash
-# Login to Docker Hub
-docker login -u shairozan
-
-# Build and push all images
-docker build -f docker/Dockerfile.ubuntu20 -t shairozan/janus-ci:ubuntu20 .
-docker push shairozan/janus-ci:ubuntu20
-
-docker build -f docker/Dockerfile.ubuntu22 -t shairozan/janus-ci:ubuntu22 .
-docker push shairozan/janus-ci:ubuntu22
-
-docker build -f docker/Dockerfile.ubuntu24 -t shairozan/janus-ci:ubuntu24 .
-docker push shairozan/janus-ci:ubuntu24
+docker build -f docker/Dockerfile.ubuntu22 -t janus-ci:ubuntu22 .
 ```
 
-## 6. Image Maintenance
+Or all three:
 
-Images are automatically maintained:
+```bash
+for version in 20 22 24; do
+  docker build -f docker/Dockerfile.ubuntu${version} -t janus-ci:ubuntu${version} .
+done
+```
 
-- **On Dockerfile changes**: Rebuild triggered by PR/push
-- **Weekly rebuilds**: Every Sunday at 2 AM UTC for security updates
-- **Manual trigger**: Use "Run workflow" in GitHub Actions
-
-## Benefits
-
-After setup, you'll get:
-
-✅ **Faster CI builds** - No dependency installation time
-✅ **Consistent environments** - Same setup across all CI runs
-✅ **Headless GUI testing** - Xvfb pre-configured for Fyne tests
-✅ **Multi-platform support** - Ubuntu 20.04, 22.04, 24.04
-✅ **Reduced failures** - Pre-tested, stable environments
+`mage docker:buildDev` builds the development image on top of the published
+`latest-ubuntu24`, with the project's Go modules pre-fetched.
 
 ## Troubleshooting
 
-### Docker Hub Push Fails
-- Verify `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets are set
-- Check token has `Read, Write, Delete` permissions
-- Ensure repository `janus-ci` exists and is public
+**`denied` or `unauthorized` when pulling** — the package is almost certainly
+still private. See the visibility step above.
 
-### Image Pull Fails in CI
-- Wait for images to build and push (check Actions tab)
-- Verify image names match exactly: `shairozan/janus-ci:ubuntu22`
-- Check Docker Hub repository is public
+**`denied: installation not allowed to Create organization package`** — the
+workflow is missing `permissions: packages: write`.
 
-### Build Errors
-- Check Dockerfile syntax in `docker/` directory
-- Ensure base images (ubuntu:20.04, etc.) are available
-- Review build logs in GitHub Actions
+**`invalid reference format`** — usually an uppercase character in the namespace.
+GHCR requires lowercase image names, which is why the workflow lowercases
+`GITHUB_REPOSITORY_OWNER`.
 
-## Security Notes
-
-- Docker Hub tokens are scoped to your account only
-- Repository is public but tokens remain private in GitHub secrets
-- Images contain no secrets or sensitive data
-- Regular rebuilds ensure latest security patches
+**Images look stale** — check that the weekly `Build Docker Images` run is
+actually succeeding. It failed silently for two months once, and the only symptom
+was Ubuntu security updates quietly not reaching the build environment.

@@ -13,9 +13,12 @@ The release is designed to degrade rather than fail. With none of these
 configured it still builds and publishes — macOS artifacts are simply unsigned,
 and the job log carries a warning saying so. Add them to make signing happen.
 
+The CI build images need no secrets: they come from
+`ghcr.io/shairozan/janus-ci`, published by `docker-build.yml` using the
+automatic `GITHUB_TOKEN`. See [../docker/SETUP.md](../docker/SETUP.md).
+
 | Secret | Purpose |
 |---|---|
-| `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` | pull the `janus-ci` build images |
 | `APPLE_CERTIFICATE_P12` | base64 of the Developer ID **Application** `.p12` |
 | `APPLE_INSTALLER_P12` | base64 of the Developer ID **Installer** `.p12` |
 | `APPLE_CERTIFICATE_PASSWORD` | the `.p12` export password (both use one) |

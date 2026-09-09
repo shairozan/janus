@@ -4,11 +4,11 @@ This directory contains Docker images for the Janus CI/CD pipeline. These images
 
 ## Available Images
 
-All images are available on Docker Hub under `shairozan/janus-ci`:
+All images are published to GitHub Container Registry under `ghcr.io/shairozan/janus-ci`:
 
-- `shairozan/janus-ci:ubuntu20` - Ubuntu 20.04 LTS
-- `shairozan/janus-ci:ubuntu22` - Ubuntu 22.04 LTS
-- `shairozan/janus-ci:ubuntu24` - Ubuntu 24.04 LTS
+- `ghcr.io/shairozan/janus-ci:ubuntu20` - Ubuntu 20.04 LTS
+- `ghcr.io/shairozan/janus-ci:ubuntu22` - Ubuntu 22.04 LTS
+- `ghcr.io/shairozan/janus-ci:ubuntu24` - Ubuntu 24.04 LTS
 
 ## What's Included
 
@@ -28,7 +28,7 @@ Each image contains:
 ```yaml
 jobs:
   test:
-    container: shairozan/janus-ci:ubuntu22
+    container: ghcr.io/shairozan/janus-ci:ubuntu22
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,13 +45,13 @@ jobs:
 docker run -it --rm \
   -v $(pwd):/workspace \
   -w /workspace \
-  shairozan/janus-ci:ubuntu22
+  ghcr.io/shairozan/janus-ci:ubuntu22
 
 # Run specific command
 docker run --rm \
   -v $(pwd):/workspace \
   -w /workspace \
-  shairozan/janus-ci:ubuntu22 \
+  ghcr.io/shairozan/janus-ci:ubuntu22 \
   bash -c "go mod download && mage lint"
 ```
 
@@ -64,7 +64,7 @@ The images include Xvfb (virtual framebuffer) for headless GUI testing:
 docker run --rm \
   -v $(pwd):/workspace \
   -w /workspace \
-  shairozan/janus-ci:ubuntu22 \
+  ghcr.io/shairozan/janus-ci:ubuntu22 \
   bash -c "mage unit"  # Includes GUI tests
 ```
 
@@ -154,6 +154,6 @@ docker run --rm \
   -v ~/.cache/go-build:/root/.cache/go-build \
   -v ~/go/pkg/mod:/go/pkg/mod \
   -w /workspace \
-  shairozan/janus-ci:ubuntu22 \
+  ghcr.io/shairozan/janus-ci:ubuntu22 \
   mage unit
 ```

@@ -15,7 +15,7 @@ import (
 type Docker mg.Namespace
 
 const (
-	dockerImage    = "dukeofubuntu/janus-ci:latest-ubuntu24"
+	dockerImage    = "ghcr.io/shairozan/janus-ci:latest-ubuntu24"
 	devDockerImage = "janus-dev:latest"
 )
 
@@ -283,9 +283,9 @@ func (Docker) Package(version string, ubuntuVersion string) error {
 
 	// Map Ubuntu version to Docker image
 	dockerImageMap := map[string]string{
-		"ubuntu2004": "dukeofubuntu/janus-ci:latest-ubuntu20",
-		"ubuntu2204": "dukeofubuntu/janus-ci:latest-ubuntu22",
-		"ubuntu2404": "dukeofubuntu/janus-ci:latest-ubuntu24",
+		"ubuntu2004": "ghcr.io/shairozan/janus-ci:latest-ubuntu20",
+		"ubuntu2204": "ghcr.io/shairozan/janus-ci:latest-ubuntu22",
+		"ubuntu2404": "ghcr.io/shairozan/janus-ci:latest-ubuntu24",
 	}
 
 	targetImage, ok := dockerImageMap[targetUbuntu]
