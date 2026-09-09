@@ -1,0 +1,22 @@
+# Shell scripts must keep LF endings whatever a contributor's core.autocrlf is
+# set to. A CRLF shebang makes the kernel look for an interpreter named "bash\r",
+# which fails as "bad interpreter: No such file or directory" — an error that
+# names neither the file nor the real cause. docker/Dockerfile.psn and
+# Dockerfile.psn-spike already run dos2unix to work around exactly this.
+*.sh text eol=lf
+
+# Same reasoning: these are read by tools that will not tolerate CRLF.
+Dockerfile* text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Windows-only scripts keep CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never touch binary or signed material.
+*.png binary
+*.ico binary
+*.p12 binary
+*.cer binary

@@ -272,7 +272,11 @@ jobs:
           APPLE_CERTIFICATE_NAME: ${{ secrets.APPLE_CERTIFICATE_NAME }}
         run: |
           VERSION="${{ github.ref_name }}"
-          ./installer/macos/build-pkg.sh "${VERSION#v}" "${{ matrix.goarch }}"
+          # Invoked through bash rather than as ./build-pkg.sh: this repository is
+          # developed on Windows with core.filemode=false, so the executable bit is
+          # easy to drop and impossible to notice locally — it only surfaces here,
+          # as "Permission denied", after a tag has already been cut.
+          bash ./installer/macos/build-pkg.sh "${VERSION#v}" "${{ matrix.goarch }}"
 
           # build-pkg.sh falls back to an unsigned package rather than failing,
           # which is right for a local build and wrong for a release: an unsigned
