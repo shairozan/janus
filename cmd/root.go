@@ -12,6 +12,7 @@ import (
 	"github.com/shairozan/janus/cmd/gui" // Still needed for gui.RunGUI()
 	"github.com/shairozan/janus/cmd/janus/commands/execute"
 	"github.com/shairozan/janus/cmd/janus/commands/hermes"
+	"github.com/shairozan/janus/cmd/janus/commands/keys"
 	"github.com/shairozan/janus/cmd/janus/commands/mcp"
 	"github.com/shairozan/janus/cmd/janus/commands/validate"
 	"github.com/shairozan/janus/cmd/version"
@@ -85,6 +86,7 @@ func Command() *cobra.Command {
 	c.AddCommand(execute.Command())
 	c.AddCommand(validate.Command())
 	c.AddCommand(mcp.Command())
+	c.AddCommand(keys.Command())
 
 	return c
 }

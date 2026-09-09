@@ -276,8 +276,18 @@ type NONMEMLicenseConfig struct {
 //
 // All three are optional — signing is off by default.
 type SigningConfig struct {
+	// Backend selects where the private key lives: SigningBackendKeychain (the OS
+	// credential store, keyed by Identity) or SigningBackendFile (PrivateKeyPath).
+	//
+	// Empty means infer: a configured PrivateKeyPath wins, else a configured
+	// Identity implies the keychain, else signing is off. That keeps configs
+	// written before the credential store existed working untouched.
+	Backend string `mapstructure:"backend" yaml:"backend"`
+
 	// PrivateKeyPath is the path to the RSA private key file (PEM format).
 	// This key is used to sign run log entries for cryptographic verification.
+	// It is the backend for hosts with no usable credential store — headless
+	// servers, containers and CI, where there is no session keyring to unlock.
 	PrivateKeyPath string `mapstructure:"private_key_path" yaml:"private_key_path"`
 
 	// Identity labels the signing key — conventionally an email address — and is
@@ -905,6 +915,38 @@ func ExpandSigningPrivateKeyPath(path string) (string, error) {
 	return path, nil
 }
 
+// Signing key backends. See SigningConfig.Backend.
+const (
+	// SigningBackendKeychain keeps the private key in the OS credential store:
+	// Keychain on macOS, Credential Manager on Windows, Secret Service on Linux.
+	SigningBackendKeychain = "keychain"
+
+	// SigningBackendFile keeps the private key in a PEM file on disk.
+	SigningBackendFile = "file"
+)
+
+// ResolveSigningBackend reports which backend cfg selects, and whether signing is
+// configured at all. An explicit Backend wins; otherwise a PrivateKeyPath means
+// file and an Identity alone means keychain.
+func ResolveSigningBackend(cfg SigningConfig) (backend string, enabled bool) {
+	switch cfg.Backend {
+	case SigningBackendKeychain:
+		return SigningBackendKeychain, cfg.Identity != ""
+	case SigningBackendFile:
+		return SigningBackendFile, cfg.PrivateKeyPath != ""
+	}
+
+	if cfg.PrivateKeyPath != "" {
+		return SigningBackendFile, true
+	}
+
+	if cfg.Identity != "" {
+		return SigningBackendKeychain, true
+	}
+
+	return "", false
+}
+
 // ExpandSigningKeyringPath expands the home directory in the signing keyring path.
 // Returns the expanded path or empty string if not configured.
 func ExpandSigningKeyringPath(path string) (string, error) {
@@ -1109,4 +1151,58 @@ func getDefaultConfigPath() string {
 	}
 
 	return filepath.Join(home, ".config", "janus", "config.yml")
+}
+
+// ErrNoConfigFile reports that there is no config file to update. Callers decide
+// what to do about it; the signing commands tell the user which two lines to add
+// rather than failing, because the key itself is already safely stored.
+var ErrNoConfigFile = errors.New("no config file to update")
+
+// persistSigningKeys updates an existing config file with the given settings.
+//
+// It deliberately refuses to create one. viper.WriteConfig serialises viper's
+// whole in-memory state, which on a fresh install is nothing but flag defaults —
+// producing a file with no execution_mode that Janus then cannot load. Better to
+// leave the user without a config file than with a broken one.
+func persistSigningKeys(settings map[string]string) error {
+	path := viper.ConfigFileUsed()
+	if path == "" {
+		return ErrNoConfigFile
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return ErrNoConfigFile
+		}
+
+		return fmt.Errorf("checking config file %s: %w", path, err)
+	}
+
+	for key, value := range settings {
+		viper.Set(key, value)
+	}
+
+	if err := viper.WriteConfig(); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+
+	return nil
+}
+
+// PersistSigningIdentity records the signing backend and identity in the user's
+// config file, so a key created by `janus keys generate` is picked up on the next
+// start without hand-editing YAML. It returns ErrNoConfigFile when there is no
+// config file to update.
+func PersistSigningIdentity(backend, identity string) error {
+	return persistSigningKeys(map[string]string{
+		"signing.backend":  backend,
+		"signing.identity": identity,
+	})
+}
+
+// PersistSigningKeyringPath records the trust keyring location. Signing and
+// verification are independent, so this is separate from PersistSigningIdentity:
+// configuring one must not silently configure the other.
+func PersistSigningKeyringPath(path string) error {
+	return persistSigningKeys(map[string]string{"signing.keyring_path": path})
 }

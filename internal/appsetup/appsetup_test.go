@@ -5,13 +5,16 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shairozan/janus/internal/appsetup"
 	"github.com/shairozan/janus/internal/config"
 	"github.com/shairozan/janus/internal/runlog"
+	"github.com/shairozan/janus/internal/signing"
 )
 
 // writeKeyPair generates an RSA key, writes the private half to a PEM file, and
@@ -208,5 +211,79 @@ func TestMissingKeyringIsNotAnError(t *testing.T) {
 
 	if trust != nil {
 		t.Error("expected no trust anchor from a missing keyring")
+	}
+}
+
+// TestKeychainBackendSignsAndVerifies is the Sprint 3 exit criterion: a key held
+// in the OS credential store signs a record, and that record verifies against a
+// keyring built from the exported public half — with no key file on disk at all.
+func TestKeychainBackendSignsAndVerifies(t *testing.T) {
+	identity := fmt.Sprintf("janus-appsetup-%d@example.invalid", os.Getpid())
+
+	key, err := signing.GenerateKey()
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+
+	if err := signing.StoreKey(identity, signing.EncodePrivateKeyPEM(key)); err != nil {
+		t.Skipf("no usable OS credential store on this host (%v); the file backend covers these hosts", err)
+	}
+
+	t.Cleanup(func() { _ = signing.DeleteKey(identity) })
+
+	publicPEM, err := signing.EncodePublicKeyPEM(key)
+	if err != nil {
+		t.Fatalf("EncodePublicKeyPEM: %v", err)
+	}
+
+	cfg := &config.Config{}
+	cfg.Signing.Backend = config.SigningBackendKeychain
+	cfg.Signing.Identity = identity
+	cfg.Signing.KeyringPath = writeKeyring(t, t.TempDir(), identity, publicPEM)
+
+	signer, err := appsetup.BuildSigner(cfg)
+	if err != nil {
+		t.Fatalf("BuildSigner: %v", err)
+	}
+
+	if signer == nil {
+		t.Fatal("BuildSigner returned no signer for a key held in the credential store")
+	}
+
+	trust, err := appsetup.BuildTrustStore(cfg)
+	if err != nil {
+		t.Fatalf("BuildTrustStore: %v", err)
+	}
+
+	record := &runlog.RunRecord{ID: "run-keychain", ModelFile: "model.mod"}
+	if err := runlog.SignRecordWithInfo(record, signer, appsetup.SignerIdentity(cfg)); err != nil {
+		t.Fatalf("signing record: %v", err)
+	}
+
+	if record.SignerEmail != identity {
+		t.Errorf("SignerEmail = %q, want the identity bound to the key", record.SignerEmail)
+	}
+
+	if result := runlog.VerifyRecordStatus(record, trust); result.Status != runlog.VerificationValid {
+		t.Errorf("VerifyRecordStatus = %v (%s), want Valid", result.Status, result.Message)
+	}
+}
+
+// TestMissingStoredKeyExplainsItself covers the first-run mistake: the config
+// names an identity the credential store has no key for. The error has to point
+// at `janus keys generate`, because "no signing key" and "credential store
+// unavailable" need completely different fixes.
+func TestMissingStoredKeyExplainsItself(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Signing.Backend = config.SigningBackendKeychain
+	cfg.Signing.Identity = fmt.Sprintf("janus-absent-%d@example.invalid", os.Getpid())
+
+	_, err := appsetup.BuildSigner(cfg)
+	if err == nil {
+		t.Fatal("expected an error when the credential store holds no key for the identity")
+	}
+
+	if !strings.Contains(err.Error(), "janus keys generate") {
+		t.Errorf("error does not say how to fix it: %v", err)
 	}
 }

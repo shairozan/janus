@@ -5,8 +5,8 @@
 Janus implements cryptographic signing and hash-chaining of run log entries to ensure audit trail integrity for CFR 21 Part 11 compliance. Each execution record is signed with an RSA-SHA256 signature and linked into a hash chain anchored by a signed checkpoint, providing:
 
 - **Tamper Evidence**: Modification of a sealed record, and removal, insertion, duplication, reordering, or tail truncation of records from the log **as a set**, are all detectable and named. This is not unconditional — see [Integrity Guarantees](#integrity-guarantees) for exactly what is covered and what is not.
-- **Non-Repudiation**: Signatures are tied to specific users via their license, and are only ever verified against a trust anchor — a record's own embedded key can never vouch for itself
-- **Multi-User Support** (*design capability, not yet shipping*): Verification is anchored in a `TrustStore`, so a record CAN be verified by any team member whose trust store holds the signer's key. **The shipping commercial build holds exactly one key — your own** — and provides no mechanism to add another. Records signed by a colleague, or by your own key before you rotated it, therefore report **Untrusted**/**head untrusted** today. See [Known Limits](#known-limits).
+- **Non-Repudiation**: Signatures are tied to a specific signing key and the identity bound to it, and are only ever verified against a trust anchor — a record's own embedded key can never vouch for itself
+- **Multi-User Support**: Verification is anchored in a `TrustStore`, so a record can be verified by any team member whose keyring holds the signer's public key. Records signed by a key your keyring does not list report **Untrusted** rather than being silently accepted. See [Keeping your keyring current](#keeping-your-keyring-current).
 - **Merge Conflict Prevention** (*partially retracted*): UUID-based directory storage eliminates Git conflicts **between the individual run record files**. It does **not** eliminate them for the chain: `head.json` is a single shared mutable file, and two branches that each seal a run will conflict on it *and* take the same sequence number. **Read [Known Limits](#known-limits) before branching a model directory.**
 
 ## Storage Architecture
@@ -128,49 +128,27 @@ Because `sequence` and `prev_hash` are set *before* signing and are covered by t
 | `signer_email` | Added after signing |
 | `signed_at` | Added after signing |
 
-## Key Generation
+## Keys and configuration
 
-Janus uses RSA-2048 keys for signing. Keys must be generated with OpenSSL (not ssh-keygen).
-
-### Generate a Key Pair
+Janus signs with RSA-2048. Create a key with:
 
 ```bash
-# Generate private key (keep this secure!)
-openssl genrsa -out ~/.config/janus/signing-key.pem 2048
-
-# Extract public key (submit this with license request)
-openssl rsa -in ~/.config/janus/signing-key.pem -pubout -out ~/.config/janus/signing-key.pub
+janus keys generate
 ```
 
-### Key Storage
-
-| File | Location | Purpose |
-|------|----------|---------|
-| Private Key | `~/.config/janus/signing-key.pem` | Signs run records (never shared) |
-| Public Key | Embedded in JWT license | Verifies signatures |
-
-## Configuration
-
-### janus.yaml
+The private key is stored in your OS credential store (or a PEM file on headless
+hosts), and the identity you give is bound to the key at creation. See
+[signing_keys.md](signing_keys.md) for the full picture — key storage, moving keys
+between machines, and how colleagues come to trust your public key.
 
 ```yaml
-runlog:
-  enabled: true
-  signing:
-    private_key: ~/.config/janus/signing-key.pem
+signing:
+  identity: you@example.com          # bound to the key; recorded on every record
+  keyring_path: ~/.config/janus/keyring.yml   # whose signatures you accept
 ```
 
-### License Integration
-
-When requesting a license, include your public key:
-
-```bash
-./scripts/generate-license.sh \
-  --signing-key ~/.config/janus/signing-key.pub \
-  --email user@company.com
-```
-
-The public key is embedded in the JWT license token and validated at startup.
+Signing and verification are independent. `identity` (with a key) lets you sign;
+`keyring_path` lets you verify other people. Either works without the other.
 
 ## Multi-User Verification
 
@@ -199,24 +177,32 @@ Each signed record includes the signer's public key:
 The embedded `signer_public_key` is informational — it is what lets the UI display "Signed by alice@company.com" without a network call — but it is **not** what verification trusts. A record vouching for its own authenticity with its own embedded key is exactly what a forged record would also do. Verification instead:
 
 1. Reads the record's `signer_fingerprint`
-2. Looks that fingerprint up in a `TrustStore` (the commercial build anchors this in the license's signing key claim; the open-source build anchors it in a user- or org-maintained keyring — see `internal/runlog/trust.go`)
+2. Looks that fingerprint up in a `TrustStore`, built from the user- or org-maintained keyring at `signing.keyring_path` (see `internal/runlog/trust.go`)
 3. If the fingerprint is not found, the record is reported **Untrusted** — never Valid, no matter how cryptographically sound the signature is
 4. If the fingerprint is found, the signature is verified against the trust store's own copy of the key, never the record's
 
 This means **any team member can verify any record signed by a key their trust store recognizes**, regardless of who signed it — and a record signed by a key nobody authorized is flagged as such, not silently accepted.
 
-### Current Limitation — read this before relying on the above
+### Keeping your keyring current
 
-The trust store is the whole mechanism, and **the shipping commercial build populates it with exactly one key: the `SigningPublicKey` claim from the local license** (`appsetup.BuildTrustStore` → `runlog.NewLicenseTrust`). There is, today, **no supported way to add a second key**. `runlog.NewKeyringTrust` — the multi-key path — exists in the code but is wired to no configuration setting and is never called by the application.
+The trust store is the whole mechanism, so verification is only as complete as
+your keyring. Two situations require you to add a key:
 
-Consequences you will actually hit:
+- **A colleague's records.** Bob opening a model directory Alice ran sees her
+  records as **Untrusted** until Alice's public key is in Bob's keyring. Alice
+  produces it with `janus keys export-public`.
+- **Your own records from before a key rotation.** [Security
+  Considerations](#security-considerations) tells you to rotate after a
+  compromise; records sealed under the old key keep verifying only while the old
+  public key remains in your keyring. Add the new key, keep the old one.
 
-- Bob opening a model directory Alice ran in sees the head reported as **not signed by a recognised key**, and Alice's records as **Untrusted**. Nothing is wrong with the log.
-- The same happens to a **single user who rotates their signing key** — which [Security Considerations](#security-considerations) tells you to do after a compromise. Records sealed under the old key stop verifying.
-
-Janus deliberately distinguishes this from tampering. An unrecognised key means *your trust store is incomplete*, not *the log is broken*: it produces a "RUN LOG NOT FULLY VERIFIED" warning, it does **not** claim the log is damaged, and — critically — it does **not** write a `KindIntegrityEvent` into the audit trail. Sealing an immutable record asserting "the log was found broken" because Janus does not happen to hold a key would be fabricating audit evidence. See `ChainReport.HasIntegrityBreak` in `internal/runlog/verify.go`.
-
-Multi-key trust (a keyring the user or organization maintains) is the intended resolution and the code seam for it is in place; until it is wired up, treat multi-user and post-rotation verification as **not supported**.
+Janus deliberately distinguishes an unrecognised key from tampering. It means
+*your keyring is incomplete*, not *the log is broken*: it produces a "RUN LOG NOT
+FULLY VERIFIED" warning, it does **not** claim the log is damaged, and — critically
+— it does **not** write a `KindIntegrityEvent` into the audit trail. Sealing an
+immutable record asserting "the log was found broken" because Janus does not
+happen to hold a key would be fabricating audit evidence. See
+`ChainReport.HasIntegrityBreak` in `internal/runlog/verify.go`.
 
 ## Verification Status
 
@@ -228,7 +214,7 @@ The run history table displays verification status for each record:
 | ✗ | Invalid | Signer is trusted, but the signature does not check out — record may have been modified |
 | ✗ | Untrusted | Signature is cryptographically sound, but the signing key's fingerprint is not in the trust store. Never rendered green — this is how a forged or unauthorized-key record announces itself |
 | ? | Unsigned | Record has no signature |
-| ? | Unverifiable | No trust anchor (license or keyring) is configured for this store at all — nothing can be checked yet |
+| ? | Unverifiable | No keyring is configured for this store at all — nothing can be checked yet |
 
 ### Status Details
 
@@ -257,7 +243,7 @@ The run history table displays verification status for each record:
 
 **Unverifiable (Gray ?)**
 - Signature present
-- No trust anchor configured for this store (no license, no keyring) — there is nothing to check the signer's fingerprint against yet
+- No keyring configured for this store — there is nothing to check the signer's fingerprint against yet
 - This is a store-wide condition, not a per-record one: every record shows this way until a trust anchor is configured
 - Display: "Signed (cannot verify — no trust anchor configured)"
 
@@ -285,7 +271,7 @@ Accidental deletion — the case auditors most often actually encounter, as oppo
   - Worse, both branches take the **same sequence number** (each computed it from the same pre-branch head). After the merge, the log permanently contains two records claiming one sequence — a duplicate-sequence break, which `VerifyIntegrity` correctly reports and which **cannot be repaired**: sealed records are immutable by design, so renumbering one of them is precisely the operation the audit trail exists to forbid.
 
   There is no automatic resolution and Janus will not invent one. Until the chain is made branch-aware, the supported model is **one linear run log per model directory**: do not seal runs on two branches of the same model directory and then merge them. Running on a branch is fine; *sealing runs on both sides of a fork and merging* is not.
-- **Multi-user and post-key-rotation verification are not supported in the shipping build.** The trust store holds exactly one key (your license's), with no mechanism to add another, so a colleague's records — and your own records from before a key rotation — report as Untrusted rather than Valid. This is a *trust-scope* limitation, not an integrity finding: Janus says so in those words, and never writes an integrity event over it. See [Current Limitation](#current-limitation--read-this-before-relying-on-the-above).
+- **Verification is only as complete as your keyring.** A colleague's records — and your own from before a key rotation — report as Untrusted until their public key is in your keyring. This is a *trust-scope* limitation, not an integrity finding: Janus says so in those words, and never writes an integrity event over it. See [Keeping your keyring current](#keeping-your-keyring-current).
 - **An attacker holding both the signing private key and write access to the run-log directory can delete the newest records and re-sign a shorter head.** Nothing in a purely local audit log can prevent this — the head checkpoint is only as trustworthy as the key that signs it, and a compromised key can re-certify any history. Detecting this requires an external witness (a remote append-only log or an independent countersignature), which Janus does not currently implement.
 - **The system can prove that a record was removed; it cannot explain why.** Malicious deletion, an operator's `rm -rf`, and a flaky sync client all produce the identical, indistinguishable signal: a gap or a tip mismatch. Making removal *evident* is the whole job of this feature; establishing the cause is necessarily a human, out-of-band task.
 - Index.json (`internal/runlog/store.go`) is a rebuildable performance cache used only to answer *display* queries (the run list, pagination) quickly — it carries no trust of its own. `VerifyIntegrity` never reads it: `SealedRecords` enumerates the run-log **directory** itself and loads every non-reserved `*.json` record straight from disk. Editing, truncating, or deleting entries from the index therefore hides nothing — a removed record still shows up as a gap in the survivors' own signed `sequence`s, and a record file *added* to the directory but absent from the index is still enumerated, and reveals itself as a duplicate sequence or a tip beyond the one the signed head declares. Chain verification is anchored in each record's own signed `sequence`/`prev_hash` and in the signed head, not in the index.
@@ -305,14 +291,17 @@ This implementation addresses key CFR 21 Part 11 requirements:
 
 ## Troubleshooting
 
-### "Signing key pair validation failed"
+### "no signing key in the credential store for this identity"
 
-The private key doesn't match the public key in your license.
+`signing.identity` names an identity the credential store holds no key for —
+usually a config copied from another machine, since the key itself never travels
+with it.
 
 **Solutions:**
-1. Regenerate your key pair
-2. Request a new license with the correct public key
-3. Ensure you're using the same key pair submitted with your license
+1. `janus keys generate` to create a key on this machine, or
+2. `janus keys import --key PATH` to bring the existing key across, or
+3. switch to the file backend if this host has no usable credential store
+   (headless servers and containers) — see [signing_keys.md](signing_keys.md)
 
 ### "unsupported PEM block type"
 
@@ -322,22 +311,22 @@ You generated keys with `ssh-keygen` instead of OpenSSL.
 
 ### Records showing "?" (Unverifiable)
 
-No trust anchor (license or keyring) is configured for this store at all. This affects every record uniformly — it is not specific to legacy records.
+No keyring is configured for this store at all. This affects every record uniformly — it is not specific to legacy records.
 
-**Solution:** Configure a license (commercial build) or a keyring (open-source build) as the trust anchor.
+**Solution:** Set `signing.keyring_path` and add the signers you trust. See [signing_keys.md](signing_keys.md).
 
 ### Records showing "✗" (Untrusted) that you believe were legitimately signed
 
 Once a trust anchor IS configured, a record whose signer fingerprint is not in it renders **Untrusted**, not a soft "?" — including old records signed before signer fingerprints were tracked, or by a key that has since been rotated out. This is deliberate: verification never falls back to a record's own embedded key, because that is exactly what a forged record would also supply.
 
-**There is currently no action you can take.** The honest state of the software: the commercial build derives its trust store from the single `SigningPublicKey` claim in your license, and exposes **no** way to add the historical signer's key. `runlog.NewKeyringTrust` (multi-key) exists in the code but is not wired to any configuration setting. Advice to "add the key to your keyring" would be advice you cannot follow — see [Known Limits](#known-limits).
+**Solution:** the signing key is not in your keyring. Ask the signer for `janus keys export-public` and add the entry to the file at your `signing.keyring_path`. For your own pre-rotation records, keep the old public key in the keyring alongside the new one — removing it is what makes those records stop verifying.
 
 What Janus does instead is refuse to lie about it: an unrecognised key is reported as *"the key that signed this run log is not one this installation recognises"* — explicitly **not** as tampering — and no integrity event is written into the audit trail over it. If you do not recognize the signer *and* the chain also reports a genuine break (a gap, a duplicate, a modified record), treat that as a real finding.
 
 ## Security Considerations
 
 1. **Protect your private key** - Anyone with your private key can sign records as you
-2. **Key rotation** - If a key is compromised, request a new license with a new public key. Be aware of the cost: records sealed under the old key will report as Untrusted afterwards, because the trust store holds only the current license key. Janus reports this as a trust-scope warning, never as tampering, and writes nothing into the audit trail over it — but it will not verify green again until multi-key trust ships. See [Known Limits](#known-limits).
+2. **Key rotation** - If a key is compromised, generate a new one with `janus keys generate --identity <you> --force`. Keep the *old public key* in your keyring alongside the new one: records sealed under it stay verifiable, and removing it is what makes them report Untrusted. Janus reports an unrecognised key as a trust-scope warning, never as tampering, and writes nothing into the audit trail over it.
 3. **Backup keys securely** - Lost private keys cannot be recovered
 4. **Verify before trusting** - Always check the verification status in the UI
 5. **A compromised key defeats the chain, not just individual records** - Someone holding your private key AND write access to the run-log directory can delete the newest sealed records and re-sign a shorter `head.json` that is internally consistent. This is a fundamental limit of any locally-verified log, not a bug — see [Known Limits](#known-limits). Protecting the private key is what protects the whole audit trail, not merely one signature.

@@ -19,22 +19,51 @@ import (
 // signing is not configured (disabled), (signer, nil) when enabled, and
 // (nil, err) on a configuration or key error. Callers decide how to surface the
 // error (the GUI shows a dialog; the daemon logs and continues unsigned).
+//
+// The key comes from whichever backend cfg selects: the OS credential store, or
+// a PEM file for hosts without one. Both produce the same Signer, so nothing
+// downstream knows or cares which was used.
 func BuildSigner(cfg *config.Config) (*signing.Signer, error) {
-	if cfg == nil || cfg.Signing.PrivateKeyPath == "" {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	backend, enabled := config.ResolveSigningBackend(cfg.Signing)
+	if !enabled {
 		return nil, nil // signing disabled
 	}
 
-	privateKeyPath, err := config.ExpandSigningPrivateKeyPath(cfg.Signing.PrivateKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("expanding signing private key path: %w", err)
-	}
+	switch backend {
+	case config.SigningBackendKeychain:
+		signer, err := signing.NewSignerFromCredentialStore(cfg.Signing.Identity)
+		if err != nil {
+			if errors.Is(err, signing.ErrNoStoredKey) {
+				return nil, fmt.Errorf("%w; run 'janus keys generate' to create one, "+
+					"or point signing.private_key_path at a key file", err)
+			}
 
-	signer, err := signing.NewSigner(privateKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("creating run log signer: %w", err)
-	}
+			return nil, fmt.Errorf("creating run log signer: %w", err)
+		}
 
-	return signer, nil
+		return signer, nil
+
+	case config.SigningBackendFile:
+		privateKeyPath, err := config.ExpandSigningPrivateKeyPath(cfg.Signing.PrivateKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("expanding signing private key path: %w", err)
+		}
+
+		signer, err := signing.NewSigner(privateKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("creating run log signer: %w", err)
+		}
+
+		return signer, nil
+
+	default:
+		return nil, fmt.Errorf("unknown signing backend %q (want %q or %q)",
+			backend, config.SigningBackendKeychain, config.SigningBackendFile)
+	}
 }
 
 // SignerIdentity returns the identity recorded on records this install signs.
