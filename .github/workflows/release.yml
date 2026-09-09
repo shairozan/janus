@@ -248,6 +248,22 @@ jobs:
 
           go build -buildvcs=false -ldflags "$LDFLAGS" -o executor-darwin-${{ matrix.goarch }} ./cmd/executor
 
+      - name: Sign standalone macOS binaries
+        if: matrix.goos == 'darwin' && steps.signing.outputs.enabled == 'true'
+        shell: bash
+        env:
+          APPLE_APPLICATION_CERT_NAME: ${{ secrets.APPLE_APPLICATION_CERT_NAME }}
+        run: |
+          # build-pkg.sh signs the copies it places inside the package root, not
+          # these originals — and these are what the .tar.gz ships. Without this
+          # step the archive would contain unsigned binaries while the .pkg was
+          # correctly signed, which is a difference nobody would notice until a
+          # user hit Gatekeeper.
+          for bin in "${{ matrix.binary-name }}" "executor-darwin-${{ matrix.goarch }}"; do
+            codesign --sign "$APPLE_APPLICATION_CERT_NAME" --options runtime --timestamp --force "$bin"
+            codesign --verify --strict --verbose=2 "$bin"
+          done
+
       - name: Build and sign macOS package
         if: matrix.goos == 'darwin' && steps.signing.outputs.enabled == 'true'
         shell: bash
@@ -257,6 +273,17 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           ./installer/macos/build-pkg.sh "${VERSION#v}" "${{ matrix.goarch }}"
+
+          # build-pkg.sh falls back to an unsigned package rather than failing,
+          # which is right for a local build and wrong for a release: an unsigned
+          # .pkg would sail through notarization submission and only fail for
+          # users. Signing was expected here, so make its absence fatal.
+          PKG="dist/janus-${VERSION#v}-macos-${{ matrix.goarch }}.pkg"
+          if ! pkgutil --check-signature "$PKG" | grep -q "Developer ID Installer"; then
+            echo "::error::$PKG is not signed by a Developer ID Installer certificate."
+            pkgutil --check-signature "$PKG" || true
+            exit 1
+          fi
 
       - name: Notarize and staple macOS package
         if: matrix.goos == 'darwin' && steps.signing.outputs.enabled == 'true'
@@ -467,8 +494,9 @@ jobs:
             ```
 
             The bare `.tar.gz` binaries are also published for scripted installs.
-            They are signed but not stapled, so Gatekeeper checks them online the
-            first time:
+            They are signed, but only the `.pkg` is notarized and stapled, so
+            Gatekeeper may still prompt on first launch. Prefer the `.pkg` unless
+            you are scripting:
             ```bash
             tar -xzf janus-macos-arm64.tar.gz && chmod +x janus-macos-arm64
             ./janus-macos-arm64

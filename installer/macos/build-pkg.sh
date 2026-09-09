@@ -102,8 +102,13 @@ cp "$EXECUTOR_SOURCE" "$PKG_ROOT/usr/local/bin/executor"
 chmod +x "$PKG_ROOT/usr/local/bin/janus"
 chmod +x "$PKG_ROOT/usr/local/bin/executor"
 
-# Code sign binaries if certificate is available
-if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
+# Code sign binaries if the identity is present in the keychain.
+#
+# Gate on the identity rather than on an env var: whoever set up the keychain —
+# CI, or you locally — is the one who knows whether signing is possible, and an
+# env var that merely claims a certificate exists can silently be wrong. Getting
+# this backwards produces an unsigned package while every step reports success.
+if security find-identity -v 2>/dev/null | grep -q "$APPLICATION_CERT_NAME"; then
     echo "🔐 Code signing binaries with Apple Developer ID..."
 
     # Check if the Application signing identity is available
@@ -142,7 +147,7 @@ if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
         echo "Binaries will not be signed. Notarization may fail."
     fi
 else
-    echo "ℹ️  No certificate provided (APPLE_CERTIFICATE_BASE64 not set)"
+    echo "ℹ️  No Developer ID Application identity in the keychain - binaries will not be signed"
     echo "Binaries will not be signed."
 fi
 echo ""
@@ -312,7 +317,7 @@ fi
 echo "✅ Product package created"
 
 # Sign the package if certificate is available
-if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
+if security find-identity -v 2>/dev/null | grep -q "$INSTALLER_CERT_NAME"; then
     echo "🔐 Attempting to sign package with Apple Developer ID..."
     echo "Looking for identity: $INSTALLER_CERT_NAME"
 
@@ -342,11 +347,11 @@ if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
         echo "Available identities:"
         security find-identity -v || echo "  (none)"
         echo ""
-        echo "Certificate import may have failed. Check APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD."
+        echo "Certificate import may have failed. Check APPLE_CERTIFICATE_P12 and APPLE_CERTIFICATE_PASSWORD."
         exit 1
     fi
 else
-    echo "ℹ️  No certificate provided (APPLE_CERTIFICATE_BASE64 not set), creating unsigned package"
+    echo "ℹ️  No Developer ID Installer identity in the keychain - creating an unsigned package"
     cp "$UNSIGNED_PKG" "$PKG_PATH"
 fi
 
