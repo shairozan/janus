@@ -51,7 +51,7 @@ func runInDevContainer(args ...string) error {
 	}
 
 	// Set GOPRIVATE for private pharmalytica repos
-	dockerArgs = append(dockerArgs, "-e", "GOPRIVATE=github.com/pharmalytica/hermes")
+	dockerArgs = append(dockerArgs, "-e", "GOPRIVATE=github.com/shairozan/hermes")
 
 	// Add display for GUI tests if needed
 	for _, arg := range args {

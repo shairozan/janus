@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	hermespb "github.com/pharmalytica/hermes/proto"
+	hermespb "github.com/shairozan/hermes/proto"
 )
 
 // hermesWorkingDir is the working directory inside the Hermes container.

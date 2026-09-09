@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	hermespb "github.com/pharmalytica/hermes/proto"
+	hermespb "github.com/shairozan/hermes/proto"
 )
 
 // hermesStage is one Hermes gRPC execution: exactly what to send and where the
