@@ -1,20 +1,20 @@
 ```shell
 # Core identification - used for filtering
-LABEL io.pharmalytica.janus.type="executor"
-LABEL io.pharmalytica.janus.platform="nonmem"
+LABEL io.github.shairozan.janus.type="executor"
+LABEL io.github.shairozan.janus.platform="nonmem"
 
 # Display information - shown in Janus UI
-LABEL io.pharmalytica.janus.display-name="NONMEM 7.5.1"
-LABEL io.pharmalytica.janus.description="NONMEM 7.5.1"
+LABEL io.github.shairozan.janus.display-name="NONMEM 7.5.1"
+LABEL io.github.shairozan.janus.description="NONMEM 7.5.1"
 
 # Version information
-LABEL io.pharmalytica.janus.version="0.0.12"
-LABEL io.pharmalytica.janus.min-janus-version="0.0.12"
+LABEL io.github.shairozan.janus.version="0.0.12"
+LABEL io.github.shairozan.janus.min-janus-version="0.0.12"
 
 # Platform-specific metadata
-LABEL io.pharmalytica.nonmem.version="7.5.1"
-LABEL io.pharmalytica.nonmem.compiler="gfortran"
-LABEL io.pharmalytica.nonmem.compiler-version="9.4.0"
+LABEL io.github.shairozan.nonmem.version="7.5.1"
+LABEL io.github.shairozan.nonmem.compiler="gfortran"
+LABEL io.github.shairozan.nonmem.compiler-version="9.4.0"
 ```
 
 Hermes images are expected to have labels as per the above. If we find `janus.type` 

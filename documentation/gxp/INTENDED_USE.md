@@ -124,7 +124,7 @@ When used in GxP environments, Janus serves as a **qualified tool** in validated
 4. Train users and document competency
 5. Control version and manage changes
 
-**Pharmalytica Provides:**
+**Janus Provides:**
 - Validation support package (requirements, test results)
 - Customer qualification guide (IQ/OQ/PQ templates)
 - Technical support during qualification
@@ -193,7 +193,7 @@ Janus can optionally integrate with Hermes for containerized execution:
 
 **Document Version:** 1.0  
 **Date:** October 26, 2025  
-**Author:** Pharmalytica Product Team  
+**Author:** Janus maintainers  
 
 **Related Documents:**
 - INTENDED_USE.md - Detailed intended use statement
@@ -205,6 +205,7 @@ Janus can optionally integrate with Hermes for containerized execution:
 
 ## Contact
 
-**Technical Questions:** software@pharmalytica.io  
-**Validation Support:** software+validation@pharmalytica.io  
-**Bug Reports:** software+bugs@pharmalytica.io
+Janus is community-supported open source. There is no vendor support desk.
+
+**Questions and bug reports:** https://github.com/shairozan/janus/issues  
+**Security issues:** see [SECURITY.md](../../SECURITY.md)

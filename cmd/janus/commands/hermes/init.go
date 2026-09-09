@@ -24,7 +24,7 @@ func initCommand() *cobra.Command {
 		Long: `Initialize Hermes configuration for a NONMEM model.
 
 This creates a .janus.config.json file colocated with the model that specifies:
-- Container image to use (e.g., ghcr.io/pharmalytica/nonmem:7.5.0)
+- Container image to use (e.g., your-registry/nonmem:7.5.0)
 - CPU cores to allocate
 - Memory to allocate
 
@@ -94,10 +94,14 @@ func promptForConfig() (*config.HermesExecutionConfig, error) {
 	var memory string
 
 	// Prompt 1: Container image
+	// No usable default: NONMEM is licensed commercial software, so its image
+	// cannot be published for anyone to pull. Every user builds or hosts their
+	// own, and the placeholder has to read as "replace me" rather than as a
+	// registry that might work.
 	imagePrompt := &survey.Input{
 		Message: "Container image:",
-		Default: "ghcr.io/pharmalytica/nonmem:7.5.0",
-		Help:    "Full container image reference including registry and tag",
+		Default: "your-registry/nonmem:7.5.0",
+		Help:    "Full container image reference including registry and tag. NONMEM images are not publicly distributable — use the image you built or the one your organization hosts (see documentation/features/hermes/build-your-own-image.md).",
 	}
 	if err := survey.AskOne(imagePrompt, &image, survey.WithValidator(survey.Required)); err != nil {
 		return nil, err

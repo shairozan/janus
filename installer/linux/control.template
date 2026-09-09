@@ -3,7 +3,7 @@ Version: {{VERSION}}
 Section: science
 Priority: optional
 Architecture: amd64
-Maintainer: Pharmalytica <noreply@github.com>
+Maintainer: shairozan <noreply@github.com>
 Description: Pharmacometric modeling GUI
  Janus is a GUI replacement for Certara Pirana, providing model execution,
  tracking, and validation for NONMEM and other pharmacometric platforms.

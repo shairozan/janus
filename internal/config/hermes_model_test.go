@@ -22,7 +22,7 @@ func TestLoadHermesModelConfig_NewFormat_Success(t *testing.T) {
 	validConfig := `{
 		"correlation_strategy": "label-first",
 		"hermes": {
-			"image": "ghcr.io/pharmalytica/nonmem:7.5.0",
+			"image": "your-registry/nonmem:7.5.0",
 			"resources": {
 				"cpu_cores": 4,
 				"memory": "8Gi"
@@ -38,7 +38,7 @@ func TestLoadHermesModelConfig_NewFormat_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	assert.Equal(t, "ghcr.io/pharmalytica/nonmem:7.5.0", cfg.Image)
+	assert.Equal(t, "your-registry/nonmem:7.5.0", cfg.Image)
 	assert.Equal(t, 4, cfg.Resources.CPUCores)
 	assert.Equal(t, "8Gi", cfg.Resources.Memory)
 }
@@ -51,7 +51,7 @@ func TestLoadHermesModelConfig_LegacyFormat_Success(t *testing.T) {
 
 	// Create a valid config file in the OLD flat format (backward compatibility)
 	validConfig := `{
-		"image": "ghcr.io/pharmalytica/nonmem:7.5.0",
+		"image": "your-registry/nonmem:7.5.0",
 		"resources": {
 			"cpu_cores": 4,
 			"memory": "8Gi"
@@ -66,7 +66,7 @@ func TestLoadHermesModelConfig_LegacyFormat_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	assert.Equal(t, "ghcr.io/pharmalytica/nonmem:7.5.0", cfg.Image)
+	assert.Equal(t, "your-registry/nonmem:7.5.0", cfg.Image)
 	assert.Equal(t, 4, cfg.Resources.CPUCores)
 	assert.Equal(t, "8Gi", cfg.Resources.Memory)
 }
@@ -299,7 +299,7 @@ func TestLoadModelConfig_NewFormat(t *testing.T) {
 	newFormatConfig := `{
 		"correlation_strategy": "label-first",
 		"hermes": {
-			"image": "ghcr.io/pharmalytica/nonmem:7.5.0",
+			"image": "your-registry/nonmem:7.5.0",
 			"container_command_path": "/opt/NONMEM/nm75/run/nmfe75",
 			"resources": {
 				"cpu_cores": 4,
@@ -317,7 +317,7 @@ func TestLoadModelConfig_NewFormat(t *testing.T) {
 	require.NotNil(t, cfg)
 	assert.Equal(t, "label-first", cfg.CorrelationStrategy)
 	require.NotNil(t, cfg.Hermes)
-	assert.Equal(t, "ghcr.io/pharmalytica/nonmem:7.5.0", cfg.Hermes.Image)
+	assert.Equal(t, "your-registry/nonmem:7.5.0", cfg.Hermes.Image)
 	assert.Equal(t, "/opt/NONMEM/nm75/run/nmfe75", cfg.Hermes.ContainerCommandPath)
 	assert.Equal(t, 4, cfg.Hermes.Resources.CPUCores)
 	assert.Equal(t, "8Gi", cfg.Hermes.Resources.Memory)
@@ -331,7 +331,7 @@ func TestLoadModelConfig_LegacyFormat_Migrated(t *testing.T) {
 	// Old flat format - should be automatically migrated
 	legacyConfig := `{
 		"correlation_strategy": "conservative",
-		"image": "ghcr.io/pharmalytica/nonmem:7.5.0",
+		"image": "your-registry/nonmem:7.5.0",
 		"resources": {
 			"cpu_cores": 4,
 			"memory": "8Gi"
@@ -349,7 +349,7 @@ func TestLoadModelConfig_LegacyFormat_Migrated(t *testing.T) {
 	assert.Equal(t, "conservative", cfg.CorrelationStrategy)
 	// Hermes config should be nested under hermes key
 	require.NotNil(t, cfg.Hermes)
-	assert.Equal(t, "ghcr.io/pharmalytica/nonmem:7.5.0", cfg.Hermes.Image)
+	assert.Equal(t, "your-registry/nonmem:7.5.0", cfg.Hermes.Image)
 	assert.Equal(t, 4, cfg.Hermes.Resources.CPUCores)
 	assert.Equal(t, "8Gi", cfg.Hermes.Resources.Memory)
 }

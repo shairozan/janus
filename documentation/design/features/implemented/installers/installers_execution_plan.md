@@ -279,7 +279,7 @@ installer/
            Name="Janus"
            Language="1033"
            Version="$(var.Version)"
-           Manufacturer="Pharmalytica"
+           Manufacturer="shairozan"
            UpgradeCode="8B7C5E3F-9A2D-4F1B-B8C6-3E7A9D2F5C8B">
 
     <Package InstallerVersion="200"
@@ -318,7 +318,7 @@ installer/
                          System="yes" />
 
             <!-- Registry key for installation path tracking -->
-            <RegistryKey Root="HKLM" Key="SOFTWARE\Pharmalytica\Janus">
+            <RegistryKey Root="HKLM" Key="SOFTWARE\shairozan\Janus">
               <RegistryValue Name="InstallPath" Type="string" Value="[INSTALLFOLDER]" />
               <RegistryValue Name="Version" Type="string" Value="$(var.Version)" />
             </RegistryKey>
@@ -346,7 +346,7 @@ installer/
                       Icon="JanusIcon" />
             <RemoveFolder Id="CleanupStartMenu" On="uninstall" />
             <RegistryValue Root="HKCU"
-                          Key="Software\Pharmalytica\Janus"
+                          Key="Software\shairozan\Janus"
                           Name="StartMenuShortcut"
                           Type="integer"
                           Value="1"
@@ -528,7 +528,7 @@ Version: {{VERSION}}
 Section: science
 Priority: optional
 Architecture: {{ARCH}}
-Maintainer: Pharmalytica <support@pharmalytica.com>
+Maintainer: shairozan <noreply@github.com>
 Description: Pharmacometric modeling GUI
  Janus is a GUI replacement for Certara Pirana, providing model execution,
  tracking, and validation for NONMEM and other pharmacometric platforms.
@@ -881,7 +881,7 @@ Notarization is required for macOS 10.15+ to avoid Gatekeeper warnings.
 set -e
 
 BINARY_PATH="$1"
-BUNDLE_ID="com.pharmalytica.janus"
+BUNDLE_ID="io.github.shairozan.janus"
 APPLE_ID="$2"          # Apple ID email
 TEAM_ID="$3"           # Team ID
 APP_PASSWORD="$4"      # App-specific password
@@ -981,7 +981,7 @@ build-macos:
         chmod +x installer/macos/sign.sh
         installer/macos/sign.sh \
           dist/macos-${{ matrix.arch }}/janus \
-          "Developer ID Application: Pharmalytica ($APPLE_TEAM_ID)"
+          "Developer ID Application: shairozan ($APPLE_TEAM_ID)"
 
     # Notarize binary
     - name: Notarize binary

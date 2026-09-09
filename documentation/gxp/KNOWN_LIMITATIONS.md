@@ -84,9 +84,8 @@ Issues found during customer qualification will be documented here with:
 
 ## Reporting Issues
 
-**Bug Reports:** bugs@pharmalytica.io  
-**Feature Requests:** features@pharmalytica.io  
-**Security Issues:** security@pharmalytica.io
+**Bug reports and feature requests:** https://github.com/shairozan/janus/issues  
+**Security issues:** see [SECURITY.md](../../SECURITY.md) — please do not open a public issue
 
 Please include:
 - Janus version
@@ -116,4 +115,4 @@ These limitations do not prevent qualification for intended use (pharmacometric 
 3. **Establish workarounds** as needed for their workflow
 4. **Track updates** via release notes for limitation resolutions
 
-If any limitation is a blocker for your qualification, contact us at software+validation@pharmalytica.io to discuss timing or alternatives.
+If any limitation is a blocker for your qualification, open an issue at https://github.com/shairozan/janus/issues to discuss timing or alternatives.

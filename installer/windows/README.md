@@ -138,8 +138,8 @@ Get-FileHash "../../dist/janus-0.2.0-windows-amd64.msi" -Algorithm SHA256 | `
   - Double-click to open files directly in Janus
 
 ### Registry Keys
-- `HKLM\SOFTWARE\Pharmalytica\Janus\InstallPath` - Installation directory
-- `HKLM\SOFTWARE\Pharmalytica\Janus\Version` - Installed version
+- `HKLM\SOFTWARE\shairozan\Janus\InstallPath` - Installation directory
+- `HKLM\SOFTWARE\shairozan\Janus\Version` - Installed version
 - `HKCR\.mod`, `HKCR\.ctl`, `HKCR\.nmctl` - File associations
 
 ### Upgrade Behavior

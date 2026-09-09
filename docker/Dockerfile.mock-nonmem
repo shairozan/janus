@@ -45,8 +45,8 @@ RUN apt-get update && apt-get install -y dos2unix && \
 USER hermes
 
 # Add labels for container identification
-LABEL com.pharmalytica.janus.mock="true" \
-      com.pharmalytica.janus.nonmem.version="mock-7.5" \
+LABEL io.github.shairozan.janus.mock="true" \
+      io.github.shairozan.janus.nonmem.version="mock-7.5" \
       org.opencontainers.image.title="Janus Mock NONMEM" \
       org.opencontainers.image.description="Mock NONMEM container for Janus testing" \
       org.opencontainers.image.source="https://github.com/shairozan/janus"

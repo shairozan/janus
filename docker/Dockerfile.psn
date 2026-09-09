@@ -75,11 +75,11 @@ RUN dos2unix /opt/NONMEM/dummy/run/nmfe75 && chmod +x /opt/NONMEM/dummy/run/nmfe
 # inherited from the base image.
 USER hermes
 
-LABEL io.pharmalytica.janus.type="orchestrator" \
-      io.pharmalytica.janus.platform="psn" \
-      io.pharmalytica.janus.display-name="Janus PsN orchestrator" \
-      io.pharmalytica.janus.description="PsN + dummy compiler on Hermes, for the K8s bootstrap saga (no NONMEM/license)" \
-      io.pharmalytica.psn.version="${PSN_VERSION}" \
+LABEL io.github.shairozan.janus.type="orchestrator" \
+      io.github.shairozan.janus.platform="psn" \
+      io.github.shairozan.janus.display-name="Janus PsN orchestrator" \
+      io.github.shairozan.janus.description="PsN + dummy compiler on Hermes, for the K8s bootstrap saga (no NONMEM/license)" \
+      io.github.shairozan.psn.version="${PSN_VERSION}" \
       org.opencontainers.image.source="https://github.com/shairozan/janus"
 
 # Hermes serves on 50051 (inherited from the base image's default command).

@@ -650,11 +650,11 @@ func (e *HermesExecutor) createContainer(ctx context.Context, modelPath string) 
 			"50051/tcp": struct{}{},
 		},
 		Labels: map[string]string{
-			"com.pharmalytica.janus.managed":   "true",
-			"com.pharmalytica.janus.model":     absModelPath,
-			"com.pharmalytica.janus.directory": modelDir,
-			"com.pharmalytica.janus.category":  categoryName,
-			"com.pharmalytica.janus.executor":  "hermes",
+			"io.github.shairozan.janus.managed":   "true",
+			"io.github.shairozan.janus.model":     absModelPath,
+			"io.github.shairozan.janus.directory": modelDir,
+			"io.github.shairozan.janus.category":  categoryName,
+			"io.github.shairozan.janus.executor":  "hermes",
 		},
 	}
 
@@ -1133,8 +1133,8 @@ func (e *HermesExecutor) cleanupStaleContainersForModel(ctx context.Context, mod
 
 	// List containers with our management label and matching model path
 	filters := filters.NewArgs()
-	filters.Add("label", "com.pharmalytica.janus.managed=true")
-	filters.Add("label", fmt.Sprintf("com.pharmalytica.janus.model=%s", absModelPath))
+	filters.Add("label", "io.github.shairozan.janus.managed=true")
+	filters.Add("label", fmt.Sprintf("io.github.shairozan.janus.model=%s", absModelPath))
 
 	containers, err := e.dockerClient.ContainerList(ctx, container.ListOptions{
 		All:     true, // Include stopped containers

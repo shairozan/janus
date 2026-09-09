@@ -185,7 +185,7 @@ COMPONENT_PKG="$BUILD_DIR/janus-component.pkg"
 pkgbuild \
     --root "$PKG_ROOT" \
     --scripts "$SCRIPTS_DIR" \
-    --identifier "com.pharmalytica.janus" \
+    --identifier "io.github.shairozan.janus" \
     --version "$VERSION" \
     --install-location "/" \
     "$COMPONENT_PKG"
@@ -205,7 +205,7 @@ cat > "$DISTRIBUTION_XML" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
     <title>Janus</title>
-    <organization>com.pharmalytica</organization>
+    <organization>io.github.shairozan</organization>
     <domains enable_localSystem="true"/>
     <options customize="never" require-scripts="false" hostArchitectures="$PKG_ARCH"/>
 
@@ -217,16 +217,16 @@ cat > "$DISTRIBUTION_XML" <<EOF
     <!-- Define the installer choices -->
     <choices-outline>
         <line choice="default">
-            <line choice="com.pharmalytica.janus"/>
+            <line choice="io.github.shairozan.janus"/>
         </line>
     </choices-outline>
 
     <choice id="default"/>
-    <choice id="com.pharmalytica.janus" visible="false">
-        <pkg-ref id="com.pharmalytica.janus"/>
+    <choice id="io.github.shairozan.janus" visible="false">
+        <pkg-ref id="io.github.shairozan.janus"/>
     </choice>
 
-    <pkg-ref id="com.pharmalytica.janus" version="$VERSION" onConclusion="none">janus-component.pkg</pkg-ref>
+    <pkg-ref id="io.github.shairozan.janus" version="$VERSION" onConclusion="none">janus-component.pkg</pkg-ref>
 
 </installer-gui-script>
 EOF
@@ -264,7 +264,7 @@ if [ -f "$REPO_ROOT/LICENSE" ]; then
 elif [ -f "$REPO_ROOT/LICENSE.md" ]; then
     cp "$REPO_ROOT/LICENSE.md" "$BUILD_DIR/license.txt"
 else
-    echo "Copyright (c) Pharmalytica" > "$BUILD_DIR/license.txt"
+    echo "See https://github.com/shairozan/janus for license terms." > "$BUILD_DIR/license.txt"
 fi
 
 # Create conclusion message

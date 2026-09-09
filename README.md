@@ -917,7 +917,7 @@ docker:
     cert_path: "~/.config/janus/docker-proxy.crt"
 
   # Default container image
-  default_image: "pharmalytica/nonmem:nm76"
+  default_image: "your-registry/nonmem:nm76"
 
   # Resource defaults
   resources:

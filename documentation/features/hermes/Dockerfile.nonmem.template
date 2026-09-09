@@ -4,7 +4,7 @@
 # Build-your-own NONMEM image for Janus / Hermes execution
 # ─────────────────────────────────────────────────────────────────────────────
 #
-# Pharmalytica CANNOT distribute images containing NONMEM (it is licensed
+# This project CANNOT distribute images containing NONMEM (it is licensed
 # software you must obtain and license yourself). Instead, this template lets you
 # build your OWN Hermes-compatible NONMEM image and push it to YOUR OWN registry.
 #
@@ -45,16 +45,16 @@ USER hermes
 #    type=executor and platform=nonmem are REQUIRED for Janus to auto-discover
 #    this image. container_command auto-fills the command path in the Hermes
 #    config dialog. The remaining labels populate the selector UI.
-LABEL io.pharmalytica.janus.type="executor" \
-      io.pharmalytica.janus.platform="nonmem" \
-      io.pharmalytica.janus.display-name="NONMEM 7.5.1 (self-built)" \
-      io.pharmalytica.janus.description="Self-built NONMEM 7.5.1 image" \
-      io.pharmalytica.janus.version="0.0.1" \
-      io.pharmalytica.janus.min-janus-version="0.0.12" \
-      io.pharmalytica.janus.container_command="/opt/NONMEM/nm75/run/nmfe75" \
-      io.pharmalytica.nonmem.version="7.5.1" \
-      io.pharmalytica.nonmem.compiler="gfortran" \
-      io.pharmalytica.nonmem.compiler-version="9.4.0"
+LABEL io.github.shairozan.janus.type="executor" \
+      io.github.shairozan.janus.platform="nonmem" \
+      io.github.shairozan.janus.display-name="NONMEM 7.5.1 (self-built)" \
+      io.github.shairozan.janus.description="Self-built NONMEM 7.5.1 image" \
+      io.github.shairozan.janus.version="0.0.1" \
+      io.github.shairozan.janus.min-janus-version="0.0.12" \
+      io.github.shairozan.janus.container_command="/opt/NONMEM/nm75/run/nmfe75" \
+      io.github.shairozan.nonmem.version="7.5.1" \
+      io.github.shairozan.nonmem.compiler="gfortran" \
+      io.github.shairozan.nonmem.compiler-version="9.4.0"
 
 # Hermes serves on 50051 (inherited from the base image's default command).
 EXPOSE 50051

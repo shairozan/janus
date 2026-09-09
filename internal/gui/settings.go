@@ -376,7 +376,7 @@ func (s *SettingsDialog) buildForm() *fyne.Container {
 	// pods (no NONMEM license needed). A per-model .janus.config.json psn_image
 	// overrides it; the fits run on the per-model execution image above.
 	s.hermesPsnImageEntry = widget.NewEntry()
-	s.hermesPsnImageEntry.SetPlaceHolder("PsN image for bootstrap (e.g. ghcr.io/pharmalytica/janus-psn:5.7.1)")
+	s.hermesPsnImageEntry.SetPlaceHolder("PsN image for bootstrap (e.g. ghcr.io/shairozan/janus-psn:5.7.1)")
 	s.hermesPsnImageEntry.SetText(s.app.config.Hermes.PsNImage)
 	s.originalValues["hermes-psn-image"] = s.app.config.Hermes.PsNImage
 

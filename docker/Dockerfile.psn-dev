@@ -26,7 +26,7 @@
 # PsN writes vpc_results.csv itself; R/Xpose are only needed for PsN's optional
 # auto-plots, which we don't use — Janus renders the results natively (#189).
 
-ARG NONMEM_BASE=ghcr.io/pharmalytica/nonmem-hermes:751
+ARG NONMEM_BASE=your-registry/nonmem-hermes:751
 FROM ${NONMEM_BASE}
 
 # Same PsN release the production orchestration image pins, so the artifacts this
@@ -84,11 +84,11 @@ RUN test -x "${NM_PATH}/run/nmfe${NM_VERSION/./}"
 
 WORKDIR /work
 
-LABEL io.pharmalytica.janus.type="dev" \
-      io.pharmalytica.janus.platform="psn" \
-      io.pharmalytica.janus.display-name="Janus PsN dev (real NONMEM + PsN)" \
-      io.pharmalytica.janus.description="Real NONMEM + pinned PsN for local end-to-end PsN runs and result-artifact capture (#189). Not for distribution." \
-      io.pharmalytica.psn.version="${PSN_VERSION}" \
+LABEL io.github.shairozan.janus.type="dev" \
+      io.github.shairozan.janus.platform="psn" \
+      io.github.shairozan.janus.display-name="Janus PsN dev (real NONMEM + PsN)" \
+      io.github.shairozan.janus.description="Real NONMEM + pinned PsN for local end-to-end PsN runs and result-artifact capture (#189). Not for distribution." \
+      io.github.shairozan.psn.version="${PSN_VERSION}" \
       org.opencontainers.image.source="https://github.com/shairozan/janus"
 
 # Drop to a shell by default for interactive dev; passing a command (e.g. `vpc …`)

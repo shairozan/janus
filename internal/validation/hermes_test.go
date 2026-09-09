@@ -31,7 +31,7 @@ func TestREQ47_HermesModelConfigurationFile(t *testing.T) {
 
 			// Create a valid config file
 			validConfig := `{
-				"image": "ghcr.io/pharmalytica/nonmem:7.5.0",
+				"image": "your-registry/nonmem:7.5.0",
 				"resources": {
 					"cpu_cores": 4,
 					"memory": "8Gi"
@@ -46,7 +46,7 @@ func TestREQ47_HermesModelConfigurationFile(t *testing.T) {
 
 			require.NoError(t, err, "Should be able to load Hermes model config")
 			require.NotNil(t, cfg, "Config should not be nil")
-			assert.Equal(t, "ghcr.io/pharmalytica/nonmem:7.5.0", cfg.Image, "Image should match config file")
+			assert.Equal(t, "your-registry/nonmem:7.5.0", cfg.Image, "Image should match config file")
 			assert.Equal(t, 4, cfg.Resources.CPUCores, "CPU cores should match config file")
 			assert.Equal(t, "8Gi", cfg.Resources.Memory, "Memory should match config file")
 
@@ -269,15 +269,15 @@ func TestREQ51_HermesContainerImageProvenance(t *testing.T) {
 				{
 					name: "GitHub Container Registry with digest",
 					image: runlog.ContainerImage{
-						Name:   "ghcr.io/pharmalytica/nonmem",
+						Name:   "your-registry/nonmem",
 						Tag:    "7.5.0",
 						Digest: "sha256:def456abc123",
-						Full:   "ghcr.io/pharmalytica/nonmem:7.5.0",
+						Full:   "your-registry/nonmem:7.5.0",
 					},
-					expectedName:   "ghcr.io/pharmalytica/nonmem",
+					expectedName:   "your-registry/nonmem",
 					expectedTag:    "7.5.0",
 					expectedDigest: "sha256:def456abc123",
-					expectedFull:   "ghcr.io/pharmalytica/nonmem:7.5.0",
+					expectedFull:   "your-registry/nonmem:7.5.0",
 				},
 				{
 					name: "Private registry",

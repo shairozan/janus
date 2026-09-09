@@ -40,7 +40,7 @@ func TestDockerDiscoverer_Discover(t *testing.T) {
 	t.Run("discovers images with all labels", func(t *testing.T) {
 		mock := &mockDockerClient{
 			images: []image.Summary{
-				createTestImage("sha256:abc123", []string{"pharmalytica/nonmem:7.5.1"}, map[string]string{
+				createTestImage("sha256:abc123", []string{"your-registry/nonmem:7.5.1"}, map[string]string{
 					LabelType:                  TypeExecutor,
 					LabelPlatform:              PlatformNONMEM,
 					LabelDisplayName:           "NONMEM 7.5.1",
@@ -64,7 +64,7 @@ func TestDockerDiscoverer_Discover(t *testing.T) {
 
 		img := images[0]
 		assert.Equal(t, "sha256:abc123", img.ImageID)
-		assert.Equal(t, []string{"pharmalytica/nonmem:7.5.1"}, img.RepoTags)
+		assert.Equal(t, []string{"your-registry/nonmem:7.5.1"}, img.RepoTags)
 		assert.Equal(t, "NONMEM 7.5.1", img.DisplayName)
 		assert.Equal(t, "NONMEM 7.5.1 with gfortran", img.Description)
 		assert.Equal(t, "0.0.12", img.Version)
@@ -519,19 +519,19 @@ func TestMultipleImages(t *testing.T) {
 	t.Run("discovers multiple NONMEM versions", func(t *testing.T) {
 		mock := &mockDockerClient{
 			images: []image.Summary{
-				createTestImage("sha256:nm75", []string{"pharmalytica/nonmem:7.5.1"}, map[string]string{
+				createTestImage("sha256:nm75", []string{"your-registry/nonmem:7.5.1"}, map[string]string{
 					LabelType:          TypeExecutor,
 					LabelPlatform:      PlatformNONMEM,
 					LabelDisplayName:   "NONMEM 7.5.1",
 					LabelNONMEMVersion: "7.5.1",
 				}),
-				createTestImage("sha256:nm76", []string{"pharmalytica/nonmem:7.6.0"}, map[string]string{
+				createTestImage("sha256:nm76", []string{"your-registry/nonmem:7.6.0"}, map[string]string{
 					LabelType:          TypeExecutor,
 					LabelPlatform:      PlatformNONMEM,
 					LabelDisplayName:   "NONMEM 7.6.0",
 					LabelNONMEMVersion: "7.6.0",
 				}),
-				createTestImage("sha256:nm74", []string{"pharmalytica/nonmem:7.4.4"}, map[string]string{
+				createTestImage("sha256:nm74", []string{"your-registry/nonmem:7.4.4"}, map[string]string{
 					LabelType:          TypeExecutor,
 					LabelPlatform:      PlatformNONMEM,
 					LabelDisplayName:   "NONMEM 7.4.4",

@@ -21,7 +21,7 @@ func TestReadLicenseFile(t *testing.T) {
 		// Create temporary license file
 		tmpDir := t.TempDir()
 		licensePath := filepath.Join(tmpDir, "nonmem.lic")
-		licenseContent := []byte("# NONMEM License File\nUSER:test@pharmalytica.com\n")
+		licenseContent := []byte("# NONMEM License File\nUSER:test@example.com\n")
 		err := os.WriteFile(licensePath, licenseContent, 0644)
 		require.NoError(t, err)
 

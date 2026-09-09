@@ -16,7 +16,7 @@ export const meta = {
 //
 // roster: 'engineering' (default) | 'business'
 // repo:   defaults to the canonical root. An earlier checkout lived elsewhere
-//         (pharmalytica-era); same code, wrong home. Do not hardcode a path here.
+//         (before the move to shairozan); same code, wrong home. Do not hardcode a path here.
 // ---------------------------------------------------------------------------
 // args can arrive as a real object, or — depending on how the caller encodes it —
 // as a JSON *string* of that object. Handle both. Getting this wrong is silent and
